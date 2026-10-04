@@ -1,0 +1,10 @@
+{
+  "description": "Your Gateway to Web3 Text-Based Adventures & Arcade Games.",
+  "secrets": [],
+  "governance": {
+    "approvers": "invited",
+    "approvals": {
+      "atLeast": 1
+    }
+  }
+}
