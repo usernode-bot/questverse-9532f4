@@ -1,28 +1,54 @@
 # QuestVerse
 
-> **Starter template** — this repo was scaffolded by Homeroom Social
-> Vibecoding. Everything in it is placeholder example code until the
-> app's first real feature is built.
+> Your gateway to web3 text-based adventures and arcade games.
 
-The scaffold is a small working demo that proves the plumbing works:
+QuestVerse is a browsable arcade of text-adventure titles that you play
+right in the app. It ships with five launch titles and a built-in runner
+that plays any of them as a web page, straight from each game's prompt.
 
-- **Sign-in** — the server verifies the platform-issued user token
-  (an RS256 JWT) on every request, so the app already knows who is
-  using it. No accounts to build.
-- **Database** — the app has its own private Postgres database; the
-  demo stores button presses in a `presses` table.
-- **Live API** — two example routes (`/api/press`,
-  `/api/leaderboard`) read and write through a real Express server.
-- **Styling** — Tailwind CSS, precompiled by `npm run build` during
-  image creation with either Kubernetes/Paketo or standalone Docker, in a
-  light and a dark look that follow the viewer's Homeroom theme.
+## The five launch titles
 
-## Replacing the template
+- **Timun Suri: Run from the Giant** (Indonesian folklore, survival)
+- **Awas Ada Pocong: Escape from Kampung Sinden** (folklore, stealth)
+- **Neon Syndicate: Breach at Sector 7** (cyberpunk, heist)
+- **Starship Salvage** (sci-fi, salvage)
+- **Uncover the Ancient Tale of Xylos** (sci-fi, exploration)
 
-Open the app on Homeroom, tap the Homeroom icon in the header, choose
-**Start a new change**, and describe the app you want in plain English.
-The template will be replaced with your real app. You can also run
-Claude Code against this repo directly; start with `CLAUDE.md`, which
-carries the app-specific notes and points at the platform rules.
+## How it works
 
-Once the real app exists, rewrite this README to describe it.
+- **The Arcade** is the home screen: a card per title with its tags, key
+  art, and a status line (Not started, In progress, Completed). One tap
+  runs or resumes a title.
+- **The Runner** plays a title. It shows the game's own state block (the
+  bracketed readout its prompt defines), the narrative scene, three A/B/C
+  choices, and a custom-action field for anything else you want to try.
+  Winning shows a Victory screen, running out of a gauge shows Game over.
+- **The Details drawer** has each title's lore, state variables, starting
+  inventory, stages, and achievements. It is also its own address.
+- **The Creator Studio** is the admin tab next to the Arcade. Publish a new
+  game, edit or remove an existing listing, and preview how a listing opens
+  (the built-in runner for `internal:<title-id>`, an embedded frame for an
+  `https` source). Everything it saves shows in the Arcade immediately.
+- **Progress, achievements, and Creator Studio listings** are saved in this
+  browser (per signed-in person when the platform provides one) and are
+  private to it.
+
+The mechanics live in `public/engine.js` (a pure, deterministic engine)
+and the five title scripts in `public/catalog.js`. The Creator Studio
+overlay lives in `public/admin.js` and stores its edits in the browser, so
+a listing survives a reload and is remapped onto the static catalog. There
+is no server state: the only API the app needs is the caller's own
+identity.
+
+## Running it
+
+The app is a Node/Express server with a static frontend:
+
+```sh
+npm ci --include=dev
+npm run build      # compiles styles/tailwind-input.css to public/tailwind.css
+npm start          # node server.js, on PORT (default 3000)
+```
+
+`DATABASE_URL`, `USERNODE_JWT_PUBLIC_KEY` and `USERNODE_APP_ID` are
+injected by the platform at runtime.

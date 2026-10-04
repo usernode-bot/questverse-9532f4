@@ -1,10 +1,50 @@
 {
-  "description": "Your Gateway to Web3 Text-Based Adventures & Arcade Games.",
+  "description": "Your gateway to web3 text-based adventures and arcade games.",
   "secrets": [],
   "governance": {
     "approvers": "invited",
     "approvals": {
       "atLeast": 1
     }
-  }
+  },
+  "tests": [
+    {
+      "id": "arcade.default",
+      "name": "Arcade catalog renders",
+      "path": "/#/",
+      "expectSelector": ".arcade",
+      "visual": true,
+      "impact": [
+        "public/**",
+        "styles/**",
+        "server.js",
+        "dapp.json"
+      ]
+    },
+    {
+      "name": "Creator Studio renders",
+      "path": "/#/admin",
+      "expectSelector": "#admin-title"
+    },
+    {
+      "name": "Game preview renders",
+      "path": "/#/embed/timun-suri",
+      "expectText": "EMBED SOURCE"
+    },
+    {
+      "name": "Title details render",
+      "path": "/#/title/timun-suri",
+      "expectText": "Distance gap"
+    },
+    {
+      "name": "Runner starts a title",
+      "path": "/#/play/timun-suri",
+      "expectText": "DISTANCE GAP: MODERATE"
+    },
+    {
+      "name": "Runner mid-run demo state",
+      "path": "/#/play/neon-syndicate?demo=1",
+      "expectText": "NEURAL INTEGRITY"
+    }
+  ]
 }

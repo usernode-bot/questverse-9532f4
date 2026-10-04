@@ -102,22 +102,31 @@ tables you've marked private), etc.
 
 Your Gateway to Web3 Text-Based Adventures & Arcade Games.
 
-_(add a sentence or two more of product context here so Claude Code has a
-shared understanding of what this app is for)_
+QuestVerse is a browsable arcade of text-adventure titles you play in the
+app. Five launch titles ship as committed static data (`public/catalog.js`),
+played by a pure, deterministic engine (`public/engine.js`) through a
+built-in runner. A Creator Studio tab (`public/admin.js`) lets someone
+publish, edit, preview and remove listings on top of that catalog. There is
+no server state; progress, achievements and the Creator Studio's listings
+live in the browser (localStorage, namespaced per signed-in person).
 
 ## Design
 
 This app's look. The first real version fills in the blanks; every later
 change follows it, and updates it when a request changes the look on purpose.
 
-- **Palette:** _(name the accent, any second colour and the neutrals, e.g.
-  "accent: tomato red; second: basil green; neutrals: warm greys")_
-- **Signature element:** _(the one thing on screen drawn from this app's
-  subject, which no other app would have)_
+- **Palette:** accent: neon violet; second: signal cyan (used for the
+  terminal-style state readout); danger: alarm magenta (game over and
+  destructive actions); neutrals: deep indigo-blacks and lilac-greys.
+- **Signature element:** the bracketed terminal state block, mirroring
+  each title's own prompt, in the signal cyan.
 - **Type scale:** `text-title`, `text-heading`, `text-body`, `text-small`
-  _(change their sizes in `tailwind.config.js` if you must, not their number)_
-- **One fixed look:** _(only for an app drawn as its own scene, such as a
-  game: which look, and why. Otherwise delete this line.)_
+  (change their sizes in `tailwind.config.js` if you must, not their number).
+- **One fixed look:** DARK. QuestVerse is drawn as its own scene, a game,
+  which is the documented exception to the two-look rule. `:root` and
+  `.dark` carry the same token values in `styles/tailwind-input.css`, so
+  the app renders identically in Homeroom's light and dark themes. Do not
+  "fix" this by adding a light look.
 
 The kit is in `styles/tailwind-input.css`: colour tokens with a light and
 a dark value (named in `tailwind.config.js`), and a few components
@@ -139,6 +148,22 @@ Re-theme by changing the token values there, keeping every text pair at
 
 ## App-specific conventions
 
-_(optional — e.g. "all currency values stored as integer cents, not
-floats"; "the `posts` table is append-only"; "avoid adding new
-dependencies"; etc.)_
+- Titles are committed static data in `public/catalog.js`; there is no
+  database table and nothing to seed. A new title is a new entry there,
+  not a migration.
+- The Creator Studio (`public/admin.js`) stores its edits in
+  `localStorage` at `qv1:<userId>:listings` as `{ v, overrides, deleted }`.
+  Stored listings are remapped onto the static catalog by id: an override
+  wins, and removing a built-in is a tombstone (not a deletion) so it can
+  be restored. Do not add a table for listings; the browser is the store.
+- A listing's `embedUrl` decides how it opens: `internal:<title-id>` runs
+  the built-in runner, an `https` URL is embedded in a sandboxed frame.
+- The engine in `public/engine.js` is pure and deterministic (no DOM, no
+  storage, no network, no randomness), so a run is reproducible. Keep it
+  that way; the runner and any future unit suite both depend on it.
+- Progress and achievements live in `localStorage`, keyed
+  `qv1:<userId>:...`. An offline load carries no token, so the store falls
+  back to a shared `anon` namespace rather than deleting real data.
+- Content: every title is suspense, evasion and puzzles. Items are survival
+  utility used as wards and decoys, never weapons, and there is no combat,
+  gore or gambling. User-facing copy avoids em dashes.
