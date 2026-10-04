@@ -1,18 +1,25 @@
 // QuestVerse client app.
 //
-// One HTML shell, three screens off the URL hash:
+// One HTML shell, these screens off the URL hash:
 //   #/                  the Arcade catalog
 //   #/title/<titleId>   a title's Details (the drawer as its own address)
 //   #/play/<titleId>    the Runner (?demo=1 opens a fixed mid-run state)
+//   #/admin             the Creator Studio (publish, edit and remove listings)
+//   #/embed/<listingId> a listing's embed source, previewed
 //
-// Progress and achievements live in localStorage, namespaced per signed-in
-// person when /api/me answers and per browser otherwise. No server state.
+// Progress, achievements and the Creator Studio's listings live in
+// localStorage, namespaced per signed-in person when /api/me answers and per
+// browser otherwise. No server state.
 
 import { CATALOG, findTitle, demoState } from './catalog.js';
 import {
   createRun, applyChoice, applyCustom, renderBlock, titleStatus,
   achievementsFor,
 } from './engine.js';
+import { el } from './dom.js';
+import {
+  DEFAULT_LISTINGS, loadListings, findListing, renderAdmin, renderEmbed,
+} from './admin.js';
 
 const app = document.getElementById('app');
 const token = new URLSearchParams(window.location.search).get('token') || '';
@@ -112,31 +119,19 @@ function noteStorage() {
   toast('Progress will not be saved in this browser.');
 }
 
-/* ── Small DOM helpers ─────────────────────────────────────────────────── */
-function el(tag, attrs, ...children) {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs || {})) {
-    if (v == null || v === false) continue;
-    if (k === 'class') node.className = v;
-    else if (k === 'text') node.textContent = v;
-    else if (k === 'html') node.innerHTML = v;
-    else if (k.startsWith('on')) node.addEventListener(k.slice(2).toLowerCase(), v);
-    else node.setAttribute(k, v);
-  }
-  for (const c of children.flat()) {
-    if (c == null) continue;
-    node.append(c.nodeType ? c : document.createTextNode(String(c)));
-  }
-  return node;
-}
-
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
+// The published catalog: the built-in titles plus anything the Creator
+// Studio has stored. Reloaded whenever the admin screen changes a listing.
+let listings = DEFAULT_LISTINGS;
+function reloadListings() { listings = loadListings(uid); }
+
 /* ── Key art ─────────────────────────────────────────────────────────────
- * Drawn in the app's own colours (currentColor + tokens), no images. One
- * motif per title, chosen by its index.
+ * Drawn in the app's own colours (currentColor + tokens). One motif per
+ * built-in title, chosen by its index. A listing that carries a banner
+ * shows it instead; built-in titles ship no banner, so they keep the art.
  */
-function keyArt(title) {
+function artSvg(listing) {
   const motifs = [
     // jungle ridge
     '<path d="M0 62 L28 30 L46 50 L70 18 L100 62 Z" fill="currentColor" opacity="0.55"/>' +
@@ -156,46 +151,80 @@ function keyArt(title) {
     '<rect x="34" y="16" width="32" height="44" rx="3" fill="none" stroke="currentColor" stroke-width="2"/>' +
     '<path d="M40 28 h20 M40 36 h20 M40 44 h12" stroke="currentColor" stroke-width="2" opacity="0.6"/>',
   ];
-  const i = CATALOG.findIndex((t) => t.id === title.id);
-  const svg =
-    '<svg viewBox="0 0 100 72" class="h-16 w-full text-accent" aria-hidden="true" fill="none">' +
-    motifs[i % motifs.length] + '</svg>';
-  return el('div', { class: 'rounded-lg bg-ground px-2 py-1', html: svg });
+  const i = DEFAULT_LISTINGS.findIndex((t) => t.id === listing.id);
+  return '<svg viewBox="0 0 100 72" class="h-16 w-full text-accent" aria-hidden="true" fill="none">' +
+    motifs[(i + motifs.length) % motifs.length] + '</svg>';
+}
+
+function keyArt(listing) {
+  const wrap = el('div', { class: 'card-art', html: artSvg(listing) });
+  if (listing.banner) {
+    const img = el('img', {
+      class: 'card-art-img', src: listing.banner, alt: '',
+      onerror: () => { img.remove(); },
+    });
+    wrap.append(img);
+  }
+  return wrap;
 }
 
 /* ── Arcade ────────────────────────────────────────────────────────────── */
-function statusPill(title) {
-  const progress = getProgress(title.id);
-  const status = titleStatus(title, progress && progress.started ? progress : null);
+function statusPill(listing) {
+  const builtIn = findTitle(listing.id);
+  if (!builtIn) return el('span', { class: 'status-pill text-muted', 'data-status': 'not-started', text: 'Not started' });
+  const progress = getProgress(listing.id);
+  const status = titleStatus(builtIn, progress && progress.started ? progress : null);
   const tone = status.key === 'completed'
     ? (progress && progress.outcome === 'win' ? 'border-accent text-accent' : 'border-danger text-danger')
     : (status.key === 'in-progress' ? 'border-signal text-signal' : 'text-muted');
   return el('span', { class: 'status-pill ' + tone, 'data-status': status.key, text: status.label });
 }
 
+function tagList(listing) {
+  return String(listing.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
+}
+
+function gameNav(active) {
+  const tab = (label, href, key) => el('a', {
+    class: 'tab' + (active === key ? ' tab-active' : ''),
+    href,
+    'aria-current': active === key ? 'page' : null,
+    text: label,
+  });
+  return el('nav', { class: 'tabs', 'aria-label': 'Views' },
+    tab('Arcade', '#/', 'arcade'),
+    tab('Creator Studio', '#/admin', 'admin'),
+    el('span', { class: 'status-pill text-muted', 'data-count': listings.length, text: String(listings.length) }),
+  );
+}
+
 function renderArcade() {
-  const cards = CATALOG.map((title) => {
-    const progress = getProgress(title.id);
+  const cards = listings.map((listing) => {
+    const builtIn = findTitle(listing.id);
+    const progress = getProgress(listing.id);
     const started = !!(progress && progress.started);
     const running = started && !progress.finished;
-    return el('article', { class: 'card flex flex-col gap-3', 'data-title-id': title.id },
-      keyArt(title),
+    const primary = builtIn
+      ? { href: '#/play/' + listing.id, text: running ? 'Resume' : 'Run', action: running ? 'resume' : 'run' }
+      : { href: '#/embed/' + listing.id, text: 'Play', action: 'play' };
+    return el('article', { class: 'card flex flex-col gap-3', 'data-title-id': listing.id },
+      keyArt(listing),
       el('div', { class: 'flex flex-col gap-1' },
-        el('h2', { class: 'text-heading', text: title.title }),
-        el('p', { class: 'text-body text-muted', text: title.tagline }),
+        el('h2', { class: 'text-heading', text: listing.title }),
+        el('p', { class: 'text-body text-muted', text: listing.tagline }),
       ),
-      el('div', { class: 'flex flex-wrap gap-2' }, title.tags.map((t) => el('span', { class: 'tag', text: t }))),
-      el('div', {}, statusPill(title)),
+      el('div', { class: 'flex flex-wrap gap-2' }, tagList(listing).map((t) => el('span', { class: 'tag', text: t }))),
+      el('div', {}, statusPill(listing)),
       el('div', { class: 'mt-auto flex flex-wrap gap-2' },
         el('a', {
           class: 'btn-primary',
-          href: '#/play/' + title.id,
-          text: running ? 'Resume' : 'Run',
-          'data-action': running ? 'resume' : 'run',
+          href: primary.href,
+          text: primary.text,
+          'data-action': primary.action,
         }),
         el('a', {
           class: 'btn-secondary',
-          href: '#/title/' + title.id,
+          href: '#/title/' + listing.id,
           text: 'Details',
           'data-action': 'details',
         }),
@@ -204,12 +233,15 @@ function renderArcade() {
   });
 
   return el('main', { class: 'mx-auto flex max-w-3xl flex-col gap-8 px-4 py-10' },
+    gameNav('arcade'),
     el('header', { class: 'flex flex-col gap-2' },
       el('p', { class: 'section-label', text: 'Arcade' }),
       el('h1', { class: 'text-title', text: 'QuestVerse' }),
-      el('p', { class: 'text-body text-muted', text: 'Five text adventures. Pick a title and play it right here.' }),
+      el('p', { class: 'text-body text-muted', text: 'Text adventures. Pick a title and play it right here.' }),
     ),
-    el('section', { class: 'arcade grid gap-4 sm:grid-cols-2' }, cards),
+    cards.length
+      ? el('section', { class: 'arcade grid gap-4 sm:grid-cols-2' }, cards)
+      : el('p', { class: 'state-empty text-body text-muted', text: 'No games are published. Open the Creator Studio to add one.' }),
   );
 }
 
@@ -229,7 +261,11 @@ function detailList(rows) {
   )));
 }
 
-function renderDetails(title, onClose) {
+function splitItems(text) {
+  return String(text || '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+function renderDetails(listing, builtIn, onClose) {
   // Move focus into the dialog on open; return it to whatever opened the
   // drawer when it closes (spec: the drawer is a real dialog).
   const opener = document.activeElement;
@@ -237,10 +273,15 @@ function renderDetails(title, onClose) {
     if (opener && opener.focus) { try { opener.focus(); } catch { /* ignore */ } }
     onClose();
   };
-  const progress = getProgress(title.id);
-  const status = titleStatus(title, progress && progress.started ? progress : null);
+  const progress = getProgress(listing.id);
+  const status = builtIn && progress && progress.started
+    ? titleStatus(builtIn, progress)
+    : { key: 'not-started', label: 'Not started' };
   const unlocked = getUnlocked();
   const running = progress && progress.started && !progress.finished;
+  const primary = builtIn
+    ? { href: '#/play/' + listing.id, text: running ? 'Resume' : 'Run' }
+    : { href: '#/embed/' + listing.id, text: 'Play' };
   let confirming = false;
 
   const resetRow = el('div', { class: 'flex flex-wrap items-center gap-2' });
@@ -276,8 +317,8 @@ function renderDetails(title, onClose) {
     el('div', { class: 'flex items-start justify-between gap-3' },
       el('div', { class: 'flex flex-col gap-1' },
         el('p', { class: 'section-label', text: 'Title details' }),
-        el('h2', { class: 'text-title', text: title.title }),
-        el('p', { class: 'text-body text-muted', text: title.tagline }),
+        el('h2', { class: 'text-title', text: listing.title }),
+        el('p', { class: 'text-body text-muted', text: listing.tagline }),
       ),
       el('button', {
         class: 'btn-secondary', type: 'button', text: 'Close', 'aria-label': 'Close details',
@@ -285,32 +326,35 @@ function renderDetails(title, onClose) {
       }),
     ),
     el('div', { class: 'flex flex-wrap items-center gap-2' },
-      title.tags.map((t) => el('span', { class: 'tag', text: t })),
+      tagList(listing).map((t) => el('span', { class: 'tag', text: t })),
       el('span', { class: 'status-pill ' + (status.key === 'completed' ? 'border-accent text-accent' : 'text-muted'), text: status.label }),
     ),
     el('section', { class: 'flex flex-col gap-2' },
-      el('h3', { class: 'section-label', text: 'Lore' }),
-      el('p', { class: 'text-body', text: title.lore }),
-      el('p', { class: 'text-body text-muted', text: title.background }),
+      el('h3', { class: 'section-label', text: builtIn ? 'Lore' : 'Story' }),
+      el('p', { class: 'text-body', text: builtIn ? builtIn.lore : listing.story }),
+      builtIn ? el('p', { class: 'text-body text-muted', text: builtIn.background }) : null,
     ),
-    el('section', { class: 'flex flex-col gap-2' },
+    builtIn ? el('section', { class: 'flex flex-col gap-2' },
       el('h3', { class: 'section-label', text: 'State variables' }),
-      detailList(title.stateVars.map((v) => [v.label, v.value])),
+      detailList(builtIn.stateVars.map((v) => [v.label, v.value])),
+    ) : el('section', { class: 'flex flex-col gap-2' },
+      el('h3', { class: 'section-label', text: 'Starting scene' }),
+      el('p', { class: 'state-block', text: listing.startScene }),
     ),
-    title.startingInventory.length ? el('section', { class: 'flex flex-col gap-2' },
+    splitItems(listing.inventory).length ? el('section', { class: 'flex flex-col gap-2' },
       el('h3', { class: 'section-label', text: 'Starting inventory' }),
-      el('ul', { class: 'list' }, title.startingInventory.map((i) => el('li', { class: 'list-row', text: i }))),
+      el('ul', { class: 'list' }, splitItems(listing.inventory).map((i) => el('li', { class: 'list-row', text: i }))),
     ) : null,
-    el('section', { class: 'flex flex-col gap-2' },
+    builtIn ? el('section', { class: 'flex flex-col gap-2' },
       el('h3', { class: 'section-label', text: 'Stages' }),
-      el('ol', { class: 'list' }, title.stageNames.map((s, i) => el('li', { class: 'list-row gap-3' },
+      el('ol', { class: 'list' }, builtIn.stageNames.map((s, i) => el('li', { class: 'list-row gap-3' },
         el('span', { class: 'text-small text-muted', text: 'Stage ' + (i + 1) }),
         el('span', { class: 'text-body', text: s }),
       ))),
-    ),
-    el('section', { class: 'flex flex-col gap-2' },
+    ) : null,
+    builtIn ? el('section', { class: 'flex flex-col gap-2' },
       el('h3', { class: 'section-label', text: 'Achievements' }),
-      el('ul', { class: 'list' }, title.achievements.map((a) => {
+      el('ul', { class: 'list' }, builtIn.achievements.map((a) => {
         const got = !!unlocked[a.key];
         return el('li', { class: 'list-row items-start gap-3' },
           el('span', { class: 'mt-0.5 text-small ' + (got ? 'text-accent' : 'text-muted'), text: got ? 'Earned' : 'Locked' }),
@@ -320,19 +364,19 @@ function renderDetails(title, onClose) {
           ),
         );
       })),
-    ),
+    ) : null,
     el('section', { class: 'flex flex-col gap-2' },
-      el('h3', { class: 'section-label', text: 'Progress' }),
-      resetRow,
+      el('h3', { class: 'section-label', text: builtIn ? 'Progress' : 'Listing' }),
+      builtIn ? resetRow : el('p', { class: 'text-small text-muted', text: 'Embed source: ' + listing.embedUrl }),
     ),
-    el('p', { class: 'text-small text-muted', text: 'Publisher: ' + title.publisher + ' | Version ' + title.version }),
+    el('p', { class: 'text-small text-muted', text: 'Publisher: ' + listing.author + (builtIn ? ' | Version ' + builtIn.version : '') }),
     el('div', { class: 'flex flex-wrap gap-2' },
-      el('a', { class: 'btn-primary', href: '#/play/' + title.id, text: running ? 'Resume' : 'Run' }),
+      el('a', { class: 'btn-primary', href: primary.href, text: primary.text, 'data-action': 'run' }),
     ),
   );
 
   const panel = el('aside', {
-    class: 'sheet-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': title.title + ' details',
+    class: 'sheet-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': listing.title + ' details',
   }, body);
 
   const backdrop = el('div', { class: 'sheet-backdrop', onClick: close });
@@ -473,11 +517,11 @@ function paintRunner() {
     ));
 
     const input = el('input', {
-      class: 'field', type: 'text', id: 'custom-action',
+      class: 'field flex-1', type: 'text', id: 'custom-action',
       placeholder: 'Type your own action', 'aria-label': 'Custom action',
     });
     const submit = el('button', {
-      class: 'btn-secondary', type: 'button', text: 'Do it', disabled: 'disabled',
+      class: 'btn-secondary shrink-0 whitespace-nowrap', type: 'button', text: 'Do it', disabled: 'disabled',
       onClick: () => {
         const text = input.value.trim();
         if (!text || runner.busy) return;
@@ -553,15 +597,34 @@ function route() {
     paintRunner();
     return;
   }
+  if (parts[0] === 'admin') {
+    app.replaceChildren(renderAdmin({
+      uid,
+      nav: gameNav('admin'),
+      onCountChange: (n) => {
+        reloadListings();
+        const badge = document.querySelector('[data-count]');
+        if (badge) { badge.textContent = String(n); badge.dataset.count = String(n); }
+      },
+    }));
+    return;
+  }
+  if (parts[0] === 'embed') {
+    const listing = findListing(listings, parts[1]);
+    if (!listing) { app.replaceChildren(renderNotFound()); return; }
+    app.replaceChildren(renderEmbed(listing, { onBack: () => closeDrawer(), nav: gameNav(null) }));
+    return;
+  }
   if (parts[0] === 'title') {
-    const title = findTitle(parts[1]);
-    const earned = title ? markSeen(title.id) : [];
+    const listing = findListing(listings, parts[1]);
+    const builtIn = findTitle(parts[1]);
+    const earned = builtIn ? markSeen(builtIn.id) : [];
     if (earned.length) toast('Achievement unlocked: Arcade Explorer');
     // Arcade underneath, details drawer over it.
     const arcade = renderArcade();
     app.replaceChildren(arcade);
-    if (title) {
-      drawerPanel = renderDetails(title, closeDrawer);
+    if (listing) {
+      drawerPanel = renderDetails(listing, builtIn, closeDrawer);
       app.append(drawerPanel);
       const first = drawerPanel.querySelector('button, [href], input');
       if (first) { try { first.focus({ preventScroll: true }); } catch { /* ignore */ } }
@@ -613,4 +676,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && drawerPanel) closeDrawer();
 });
 
-loadIdentity().then(route);
+loadIdentity().then(() => {
+  reloadListings();
+  route();
+});

@@ -25,12 +25,20 @@ that plays any of them as a web page, straight from each game's prompt.
   Winning shows a Victory screen, running out of a gauge shows Game over.
 - **The Details drawer** has each title's lore, state variables, starting
   inventory, stages, and achievements. It is also its own address.
-- **Progress and achievements** are saved in this browser (per signed-in
-  person when the platform provides one) and are private to it.
+- **The Creator Studio** is the admin tab next to the Arcade. Publish a new
+  game, edit or remove an existing listing, and preview how a listing opens
+  (the built-in runner for `internal:<title-id>`, an embedded frame for an
+  `https` source). Everything it saves shows in the Arcade immediately.
+- **Progress, achievements, and Creator Studio listings** are saved in this
+  browser (per signed-in person when the platform provides one) and are
+  private to it.
 
 The mechanics live in `public/engine.js` (a pure, deterministic engine)
-and the five title scripts in `public/catalog.js`. There is no server
-state: the only API the app needs is the caller's own identity.
+and the five title scripts in `public/catalog.js`. The Creator Studio
+overlay lives in `public/admin.js` and stores its edits in the browser, so
+a listing survives a reload and is remapped onto the static catalog. There
+is no server state: the only API the app needs is the caller's own
+identity.
 
 ## Running it
 

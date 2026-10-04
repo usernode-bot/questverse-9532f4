@@ -162,4 +162,55 @@
   .log-line {
     @apply text-body;
   }
+
+  /* ── Creator Studio pieces ─────────────────────────────────────────────
+   * The admin surface reuses the kit above; these are the few parts it adds. */
+
+  /* The top-nav tabs, one row holding Arcade, Creator Studio and the count. */
+  .tabs {
+    @apply flex w-fit flex-wrap items-center gap-1 rounded-lg border border-line bg-surface p-1;
+  }
+  .tab {
+    @apply inline-flex min-h-11 items-center rounded-md px-3 text-small font-medium text-muted
+      hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  }
+  .tab-active {
+    @apply bg-raised text-fg;
+  }
+
+  /* Card and list art. The drawn SVG sits behind, and a listing's banner
+     image covers it when one is set. An image that fails to load removes
+     itself and the art shows again. */
+  .card-art {
+    @apply relative flex h-28 items-center justify-center overflow-hidden rounded-lg bg-ground px-2 py-1;
+  }
+  .card-art-img {
+    @apply absolute inset-0 h-full w-full object-cover;
+  }
+  .thumb {
+    @apply relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-line bg-ground;
+  }
+  .thumb-img {
+    @apply absolute inset-0 h-full w-full object-cover;
+  }
+  .thumb-fallback {
+    @apply flex h-full w-full items-center justify-center text-line;
+  }
+  .thumb-svg {
+    @apply h-6 w-6;
+  }
+
+  /* The Creator Studio form. Field errors appear under their field once it
+     has been touched or Save has been pressed. */
+  .form-error {
+    @apply text-small text-danger;
+  }
+  .form-notice {
+    @apply text-small text-accent;
+  }
+
+  /* The frame a listing with an external embed source opens in. */
+  .embed-frame {
+    @apply h-96 w-full rounded-lg border border-line bg-ground;
+  }
 }

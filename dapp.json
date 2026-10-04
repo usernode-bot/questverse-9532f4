@@ -22,6 +22,16 @@
       ]
     },
     {
+      "name": "Creator Studio renders",
+      "path": "/#/admin",
+      "expectSelector": "#admin-title"
+    },
+    {
+      "name": "Game preview renders",
+      "path": "/#/embed/timun-suri",
+      "expectText": "EMBED SOURCE"
+    },
+    {
       "name": "Title details render",
       "path": "/#/title/timun-suri",
       "expectText": "Distance gap"

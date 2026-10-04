@@ -105,8 +105,10 @@ Your Gateway to Web3 Text-Based Adventures & Arcade Games.
 QuestVerse is a browsable arcade of text-adventure titles you play in the
 app. Five launch titles ship as committed static data (`public/catalog.js`),
 played by a pure, deterministic engine (`public/engine.js`) through a
-built-in runner. There is no server state; progress and achievements live
-in the browser (localStorage, namespaced per signed-in person).
+built-in runner. A Creator Studio tab (`public/admin.js`) lets someone
+publish, edit, preview and remove listings on top of that catalog. There is
+no server state; progress, achievements and the Creator Studio's listings
+live in the browser (localStorage, namespaced per signed-in person).
 
 ## Design
 
@@ -149,6 +151,13 @@ Re-theme by changing the token values there, keeping every text pair at
 - Titles are committed static data in `public/catalog.js`; there is no
   database table and nothing to seed. A new title is a new entry there,
   not a migration.
+- The Creator Studio (`public/admin.js`) stores its edits in
+  `localStorage` at `qv1:<userId>:listings` as `{ v, overrides, deleted }`.
+  Stored listings are remapped onto the static catalog by id: an override
+  wins, and removing a built-in is a tombstone (not a deletion) so it can
+  be restored. Do not add a table for listings; the browser is the store.
+- A listing's `embedUrl` decides how it opens: `internal:<title-id>` runs
+  the built-in runner, an `https` URL is embedded in a sandboxed frame.
 - The engine in `public/engine.js` is pure and deterministic (no DOM, no
   storage, no network, no randomness), so a run is reproducible. Keep it
   that way; the runner and any future unit suite both depend on it.
