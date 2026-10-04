@@ -472,12 +472,18 @@ export function renderAdmin({ uid, onCountChange, nav }) {
 // the built-in runner for an internal title, or an embedded frame for an
 // external URL. This is what the storefront links to for a game that is not
 // one of the built-in runner titles.
-export function renderEmbed(listing, { onBack, nav }) {
+export function renderEmbed(listing, { onBack, nav, studio = true }) {
   const kind = embedKind(listing.embedUrl);
+
+  // The "back to the studio" links only make sense for the allowed account;
+  // everyone else keeps the Arcade link.
+  const studioLink = (text) => (studio
+    ? el('a', { class: 'btn-secondary', href: '#/admin', text })
+    : null);
 
   const header = el('header', { class: 'flex flex-col gap-3' },
     el('div', { class: 'flex flex-wrap items-center justify-between gap-2' },
-      el('a', { class: 'btn-secondary', href: '#/admin', text: 'Back to Creator Studio' }),
+      studioLink('Back to Creator Studio'),
       el('a', { class: 'btn-secondary', href: '#/', text: 'Back to Arcade' }),
     ),
     el('div', { class: 'flex flex-col gap-1' },
@@ -511,7 +517,7 @@ export function renderEmbed(listing, { onBack, nav }) {
     body = el('section', { class: 'state-error' },
       el('p', { class: 'text-body text-danger', text: 'This embed source is not usable.' }),
       el('p', { class: 'text-small text-muted', text: 'Edit the game and set internal:<title-id> or an https URL.' }),
-      el('div', {}, el('a', { class: 'btn-secondary', href: '#/admin', text: 'Edit the game' })),
+      el('div', {}, studioLink('Edit the game')),
     );
   }
 
