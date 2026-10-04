@@ -22,7 +22,7 @@
       ]
     },
     {
-      "name": "Creator Studio renders",
+      "name": "Creator Studio renders for an allowed account",
       "path": "/#/admin",
       "expectSelector": "#admin-title"
     },

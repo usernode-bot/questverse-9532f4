@@ -156,6 +156,14 @@ Re-theme by changing the token values there, keeping every text pair at
   Stored listings are remapped onto the static catalog by id: an override
   wins, and removing a built-in is a tombstone (not a deletion) so it can
   be restored. Do not add a table for listings; the browser is the store.
+- The Creator Studio is locked to the `STUDIO_USERNAMES` allowlist in
+  `server.js` (`scraido2`, plus the platform's `usernode-capture` and
+  `usernode-capture-admin` service identities, which sign the proposal
+  checks). The nav tab and the `#/admin` route are hidden for everyone else,
+  who see a "Not authorised" screen if they reach the URL, and `GET /api/me`
+  reports the `studio` flag the client reads. The decision is authorised from
+  the verified iframe token's `req.user.username`, never from a
+  client-supplied value. Add a person by editing that set.
 - A listing's `embedUrl` decides how it opens: `internal:<title-id>` runs
   the built-in runner, an `https` URL is embedded in a sandboxed frame.
 - The engine in `public/engine.js` is pure and deterministic (no DOM, no

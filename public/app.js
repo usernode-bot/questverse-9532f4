@@ -30,6 +30,10 @@ const token = new URLSearchParams(window.location.search).get('token') || '';
  */
 const NS = 'qv1';
 let uid = 'anon';
+// Only the allowed Homeroom account may open the Creator Studio. The flag
+// comes from the server (it authorises from the verified iframe token's
+// username), never from storage or the client, so it cannot be spoofed here.
+let studio = false;
 let storageOk = true;
 let warnedAboutStorage = false;
 
@@ -191,9 +195,11 @@ function gameNav(active) {
     'aria-current': active === key ? 'page' : null,
     text: label,
   });
+  const tabs = [tab('Arcade', '#/', 'arcade')];
+  // The Creator Studio tab is hidden from everyone but the allowed account.
+  if (studio) tabs.push(tab('Creator Studio', '#/admin', 'admin'));
   return el('nav', { class: 'tabs', 'aria-label': 'Views' },
-    tab('Arcade', '#/', 'arcade'),
-    tab('Creator Studio', '#/admin', 'admin'),
+    tabs,
     el('span', { class: 'status-pill text-muted', 'data-count': listings.length, text: String(listings.length) }),
   );
 }
@@ -250,6 +256,17 @@ function renderNotFound() {
   return el('main', { class: 'mx-auto flex max-w-md flex-col gap-8 px-4 py-10' },
     el('h1', { class: 'text-title', text: 'Title not found' }),
     el('p', { class: 'text-body text-muted', text: 'That title is not in the Arcade.' }),
+    el('div', {}, el('a', { class: 'btn-primary', href: '#/', text: 'Back to Arcade' })),
+  );
+}
+
+// Reached when someone other than the allowed account opens #/admin. The
+// Creator Studio tab is hidden for them, so this only shows on a direct
+// visit to the URL.
+function renderNotAuthorised() {
+  return el('main', { class: 'mx-auto flex max-w-md flex-col gap-8 px-4 py-10' },
+    el('h1', { class: 'text-title', 'data-unauthorised': 'studio', text: 'Not authorised' }),
+    el('p', { class: 'text-body text-muted', text: 'The Creator Studio is private to this account.' }),
     el('div', {}, el('a', { class: 'btn-primary', href: '#/', text: 'Back to Arcade' })),
   );
 }
@@ -598,6 +615,9 @@ function route() {
     return;
   }
   if (parts[0] === 'admin') {
+    // Server-side flag only: another account cannot open the studio even by
+    // typing the URL.
+    if (!studio) { app.replaceChildren(renderNotAuthorised()); return; }
     app.replaceChildren(renderAdmin({
       uid,
       nav: gameNav('admin'),
@@ -612,7 +632,7 @@ function route() {
   if (parts[0] === 'embed') {
     const listing = findListing(listings, parts[1]);
     if (!listing) { app.replaceChildren(renderNotFound()); return; }
-    app.replaceChildren(renderEmbed(listing, { onBack: () => closeDrawer(), nav: gameNav(null) }));
+    app.replaceChildren(renderEmbed(listing, { onBack: () => closeDrawer(), nav: gameNav(null), studio }));
     return;
   }
   if (parts[0] === 'title') {
@@ -647,8 +667,10 @@ async function loadIdentity() {
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const me = await res.json();
       if (me && me.id != null) uid = String(me.id);
+      studio = !!(me && me.studio);
     } catch {
       uid = 'anon';
+      studio = false;
     }
   }
   try {
