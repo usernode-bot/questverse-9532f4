@@ -37,9 +37,17 @@
       "expectText": "Distance gap"
     },
     {
-      "name": "Runner starts a title",
+      "name": "Briefing shows before a fresh run",
       "path": "/#/play/timun-suri",
-      "expectText": "DISTANCE GAP: MODERATE"
+      "expectSelector": "[data-testid='briefing']",
+      "expectText": "Opening scene",
+      "visual": true,
+      "impact": [
+        "public/**",
+        "styles/**",
+        "server.js",
+        "dapp.json"
+      ]
     },
     {
       "name": "Runner mid-run demo state",

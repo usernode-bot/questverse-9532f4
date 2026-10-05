@@ -402,7 +402,7 @@ function renderDetails(listing, builtIn, onClose) {
 }
 
 /* ── Runner ────────────────────────────────────────────────────────────── */
-let runner = null; // { title, state, demo, resumeBanner }
+let runner = null; // { title, state, demo, resumeBanner, briefing }
 let typeToken = 0;   // cancels an in-flight typewriter when the runner repaints
 
 function saveRunner() {
@@ -444,6 +444,41 @@ function paintRunner() {
   const screen = document.getElementById('runner-screen');
   if (!screen) return;
 
+  // Pre-run briefing: on a fresh run, show what the title is before any
+  // choice is made. Begin just flips the flag and repaints; the run state
+  // already exists, so no choice buttons, transcript or banner are built
+  // here and saveRunner is never called on this path.
+  if (runner.briefing) {
+    screen.dataset.testid = 'briefing';
+    screen.replaceChildren(
+      el('header', { class: 'flex flex-col gap-1' },
+        el('p', { class: 'section-label', text: 'Briefing' }),
+        el('h1', { class: 'text-title', text: title.title }),
+        el('p', { class: 'text-body text-muted', text: title.tagline }),
+      ),
+      el('div', { class: 'flex flex-wrap gap-2' },
+        tagList(title).map((t) => el('span', { class: 'tag', text: t })),
+      ),
+      el('section', { class: 'flex flex-col gap-2' },
+        el('h2', { class: 'section-label', text: 'Lore' }),
+        el('p', { class: 'text-body', text: title.lore }),
+      ),
+      el('section', { class: 'flex flex-col gap-2' },
+        el('h2', { class: 'section-label', text: 'Opening scene' }),
+        el('div', { class: 'state-block' }, el('div', { text: title.opening })),
+      ),
+      el('div', { class: 'flex flex-wrap items-center gap-2' },
+        el('button', {
+          class: 'btn-primary', type: 'button', text: 'Begin', 'data-action': 'begin',
+          onClick: () => { runner.briefing = false; paintRunner(); },
+        }),
+        el('a', { class: 'btn-secondary', href: '#/', text: 'Back to Arcade' }),
+      ),
+    );
+    return;
+  }
+  screen.removeAttribute('data-testid');
+
   const stage = title.stages[state.stageIndex];
   const terminal = state.outcome;
   const blockLines = renderBlock(title, state);
@@ -479,7 +514,7 @@ function paintRunner() {
           }),
           el('button', {
             class: 'btn-secondary', type: 'button', text: 'Start over',
-            onClick: () => { runner.resumeBanner = null; runner.state = createRun(title); saveRunner(); paintRunner(); },
+            onClick: () => { runner.resumeBanner = null; runner.briefing = false; runner.state = createRun(title); saveRunner(); paintRunner(); },
           }),
         ),
       )
@@ -491,7 +526,7 @@ function paintRunner() {
       el('div', { class: 'flex gap-2' },
         el('button', {
           class: 'btn-secondary', type: 'button', text: 'Restart',
-          onClick: () => { runner.state = createRun(title); saveRunner(); paintRunner(); },
+          onClick: () => { runner.briefing = false; runner.state = createRun(title); saveRunner(); paintRunner(); },
         }),
       ),
     ),
@@ -510,7 +545,7 @@ function paintRunner() {
       el('div', { class: 'flex flex-wrap gap-2' },
         el('button', {
           class: 'btn-primary', type: 'button', text: 'Play again',
-          onClick: () => { runner.state = createRun(title); saveRunner(); paintRunner(); },
+          onClick: () => { runner.briefing = false; runner.state = createRun(title); saveRunner(); paintRunner(); },
         }),
         el('a', { class: 'btn-secondary', href: '#/', text: 'Back to Arcade' }),
       ),
@@ -573,7 +608,7 @@ function renderRunner(title, params) {
   const demo = params.get('demo') === '1';
   const fresh = demo ? demoState(title) : createRun(title);
   const saved = demo ? null : getProgress(title.id);
-  runner = { title, state: fresh, demo, resumeBanner: null };
+  runner = { title, state: fresh, demo, resumeBanner: null, briefing: false };
 
   const screen = el('main', { id: 'runner-screen', class: 'mx-auto flex max-w-2xl flex-col gap-6 px-4 py-8' });
 
@@ -582,8 +617,11 @@ function renderRunner(title, params) {
   if (saved && saved.started && !saved.finished && !demo) {
     runner.state = saved;
     runner.resumeBanner = saved;
-  } else {
-    runner.resumeBanner = null;
+  } else if (!demo) {
+    // Any other non-demo arrival is a fresh run: show the briefing first.
+    // Nothing is saved until the first choice after Begin, so leaving at the
+    // briefing leaves the title not-started.
+    runner.briefing = true;
   }
 
   screen.dataset.titleId = title.id;
