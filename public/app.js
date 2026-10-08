@@ -20,6 +20,9 @@ import { el } from './dom.js';
 import {
   DEFAULT_LISTINGS, loadListings, findListing, renderAdmin, renderEmbed,
 } from './admin.js';
+import {
+  DEFAULT_THEME, isTheme, themeName, applyTheme, cachedTheme, cacheTheme,
+} from './themes.js';
 
 const app = document.getElementById('app');
 const token = new URLSearchParams(window.location.search).get('token') || '';
@@ -36,6 +39,10 @@ let uid = 'anon';
 let studio = false;
 let storageOk = true;
 let warnedAboutStorage = false;
+// The seasonal theme live for every player. Start from the last one this
+// browser saw, then take the server's answer in loadIdentity().
+let liveTheme = cachedTheme();
+applyTheme(liveTheme);
 
 function lsGet(key) {
   if (!storageOk) return null;
@@ -244,6 +251,9 @@ function renderArcade() {
       el('p', { class: 'section-label', text: 'Arcade' }),
       el('h1', { class: 'text-title', text: 'QuestVerse' }),
       el('p', { class: 'text-body text-muted', text: 'Text adventures. Pick a title and play it right here.' }),
+      liveTheme !== DEFAULT_THEME
+        ? el('span', { class: 'status-pill w-fit border-accent text-accent', 'data-event-theme': liveTheme, text: themeName(liveTheme) + ' event' })
+        : null,
     ),
     cards.length
       ? el('section', { class: 'arcade grid gap-4 sm:grid-cols-2' }, cards)
@@ -620,6 +630,9 @@ function route() {
     if (!studio) { app.replaceChildren(renderNotAuthorised()); return; }
     app.replaceChildren(renderAdmin({
       uid,
+      token,
+      liveTheme,
+      onThemeChange: (id) => { liveTheme = id; cacheTheme(id); },
       nav: gameNav('admin'),
       onCountChange: (n) => {
         reloadListings();
@@ -668,6 +681,11 @@ async function loadIdentity() {
       const me = await res.json();
       if (me && me.id != null) uid = String(me.id);
       studio = !!(me && me.studio);
+      if (me && isTheme(me.theme)) {
+        liveTheme = me.theme;
+        cacheTheme(liveTheme);
+        applyTheme(liveTheme);
+      }
     } catch {
       uid = 'anon';
       studio = false;
@@ -690,6 +708,9 @@ window.addEventListener('hashchange', (e) => {
   // A new navigation clears an open runner.
   if (runner && !window.location.hash.startsWith('#/play/')) runner = null;
   if (drawerPanel && !window.location.hash.startsWith('#/title/')) drawerPanel = null;
+  // A theme picked in the Creator Studio but not applied is a preview for
+  // that screen only; anywhere else shows the live theme.
+  applyTheme(liveTheme);
   route();
   if (e.type === 'hashchange') window.scrollTo(0, 0);
 });

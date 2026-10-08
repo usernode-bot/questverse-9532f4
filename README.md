@@ -29,6 +29,9 @@ that plays any of them as a web page, straight from each game's prompt.
   game, edit or remove an existing listing, and preview how a listing opens
   (the built-in runner for `internal:<title-id>`, an embedded frame for an
   `https` source). Everything it saves shows in the Arcade immediately.
+- **Seasonal theme** in the Creator Studio recolours QuestVerse for every
+  player to match a real-world event: Neon (the everyday look), Halloween,
+  Winter Lights or Lunar New Year. Pick one to preview it, then Apply theme.
 - **Progress, achievements, and Creator Studio listings** are saved in this
   browser (per signed-in person when the platform provides one) and are
   private to it.
@@ -36,9 +39,9 @@ that plays any of them as a web page, straight from each game's prompt.
 The mechanics live in `public/engine.js` (a pure, deterministic engine)
 and the five title scripts in `public/catalog.js`. The Creator Studio
 overlay lives in `public/admin.js` and stores its edits in the browser, so
-a listing survives a reload and is remapped onto the static catalog. There
-is no server state: the only API the app needs is the caller's own
-identity.
+a listing survives a reload and is remapped onto the static catalog. The
+only server state is the live seasonal theme (`qv_settings`, in
+`server.js`); otherwise the API is the caller's own identity.
 
 ## Running it
 

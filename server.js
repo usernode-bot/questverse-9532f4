@@ -130,13 +130,62 @@ app.get('/health', (_req, res) => {
 // fresh load.
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 
+// The seasonal themes the Creator Studio can apply. Keep in step with
+// THEMES in public/themes.js (and the html[data-theme] blocks in
+// styles/tailwind-input.css). 'neon' is the everyday look.
+const DEFAULT_THEME = 'neon';
+const THEME_IDS = new Set(['neon', 'halloween', 'winter', 'lunar']);
+
+// The live theme, the app's one piece of server state: a single row in
+// qv_settings shared by every player. A missing row, an unknown value or a
+// database failure all mean the everyday look, never an error.
+async function readTheme() {
+  try {
+    // Capped, so a stuck connection cannot hold up sign-in for an arcade
+    // that otherwise needs no database at all.
+    const { rows } = await Promise.race([
+      pool.query("SELECT value FROM qv_settings WHERE key = 'theme'"),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), 2000).unref()),
+    ]);
+    const value = rows[0] && rows[0].value;
+    return THEME_IDS.has(value) ? value : DEFAULT_THEME;
+  } catch (err) {
+    console.warn('theme read failed: ' + err.message);
+    return DEFAULT_THEME;
+  }
+}
+
 // The arcade, the runner, the details drawer and all progress live in the
-// browser (public/app.js and its localStorage store). The only API this app
-// needs is the caller's own identity, which namespaces that store per person
-// so two people on one browser do not overwrite each other, and the studio
-// flag the Creator Studio gate reads.
-app.get('/api/me', (req, res) => {
-  res.json({ id: req.user.id, username: req.user.username, studio: isStudioUser(req.user) });
+// browser (public/app.js and its localStorage store). The API is the
+// caller's own identity, which namespaces that store per person so two
+// people on one browser do not overwrite each other, the studio flag the
+// Creator Studio gate reads, and the live seasonal theme.
+app.get('/api/me', async (req, res) => {
+  const theme = await readTheme();
+  res.json({ id: req.user.id, username: req.user.username, studio: isStudioUser(req.user), theme });
+});
+
+// Apply a seasonal theme for every player. Studio accounts only, decided
+// from the verified token like the studio gate itself.
+app.put('/api/theme', async (req, res) => {
+  if (!isStudioUser(req.user)) return res.status(403).json({ error: 'Not authorised' });
+  const theme = req.body && req.body.theme;
+  if (typeof theme !== 'string' || !THEME_IDS.has(theme)) {
+    return res.status(400).json({ error: 'Unknown theme' });
+  }
+  try {
+    await pool.query(
+      `INSERT INTO qv_settings (key, value, updated_by, updated_at)
+       VALUES ('theme', $1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+      [theme, String(req.user.username || '')],
+    );
+    return res.json({ theme });
+  } catch (err) {
+    console.error('theme write failed: ' + err.message);
+    return res.status(500).json({ error: 'Could not save the theme' });
+  }
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -179,7 +228,25 @@ app.get('*', (req, res) => {
 const DRAIN_MS = 3000;
 let shuttingDown = false;
 
+// Schema, applied idempotently on boot. qv_settings is a public table: it
+// holds the live theme id and the studio username that set it, nothing
+// sensitive. A database outage must not stop the arcade, which needs none,
+// so a failure here is logged and the app starts anyway.
+async function ensureSchema() {
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS qv_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_by TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+  } catch (err) {
+    console.warn('schema setup failed: ' + err.message);
+  }
+}
+
 async function start() {
+  await ensureSchema();
   const server = app.listen(port, () => console.log(`Listening on :${port}`));
   // Let Envoy retire idle upstream connections at 60s, with a 15s margin.
   server.keepAliveTimeout = 75_000;

@@ -27,6 +27,11 @@
       "expectSelector": "#admin-title"
     },
     {
+      "name": "Seasonal theme picker renders in Creator Studio",
+      "path": "/#/admin",
+      "expectSelector": "[data-theme-picker] [data-theme-option=\"halloween\"]"
+    },
+    {
       "name": "Game preview renders",
       "path": "/#/embed/timun-suri",
       "expectText": "EMBED SOURCE"

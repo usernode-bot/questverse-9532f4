@@ -40,6 +40,51 @@
     --focus: 34 211 238;      /* signal cyan: the keyboard focus ring */
     --signal: 34 211 238;     /* signal cyan: the terminal-style state block */
   }
+
+  /* Seasonal themes, picked in the Creator Studio and applied to every
+   * player as html[data-theme="<id>"] (public/themes.js). Each re-tints the
+   * neutrals, the accent and the signal; the alarm magenta (danger) stays
+   * the same so game over always reads the same. Neon, the default, is the
+   * block above and has no override. html[data-theme] outranks :root and
+   * .dark, so a theme wins in both Homeroom looks. Every text pair holds
+   * 4.5:1 or more. A new theme is a block here, an entry in public/themes.js
+   * and an id in THEME_IDS in server.js. */
+  html[data-theme="halloween"] {
+    --ground: 12 8 6;
+    --surface: 26 17 12;
+    --raised: 40 27 18;
+    --fg: 245 236 228;
+    --muted: 178 160 146;
+    --line: 70 50 36;
+    --accent: 249 115 22;     /* pumpkin orange */
+    --on-accent: 28 10 0;
+    --focus: 163 230 53;
+    --signal: 163 230 53;     /* lantern lime */
+  }
+  html[data-theme="winter"] {
+    --ground: 6 12 20;
+    --surface: 14 24 38;
+    --raised: 18 29 46;
+    --fg: 230 240 250;
+    --muted: 146 166 188;
+    --line: 44 64 90;
+    --accent: 56 189 248;     /* frost blue */
+    --on-accent: 4 20 34;
+    --focus: 167 243 208;
+    --signal: 167 243 208;    /* aurora mint */
+  }
+  html[data-theme="lunar"] {
+    --ground: 16 6 8;
+    --surface: 30 12 14;
+    --raised: 46 20 22;
+    --fg: 248 236 230;
+    --muted: 186 156 150;
+    --line: 78 38 40;
+    --accent: 250 204 21;     /* lantern gold */
+    --on-accent: 32 20 0;
+    --focus: 248 113 113;
+    --signal: 248 113 113;    /* festival red */
+  }
   /* el.hidden = true hides an element even when a class gives it a display
      (flex, the components below). */
   [hidden]:where(:not([hidden="until-found"])) {
@@ -207,6 +252,12 @@
   }
   .form-notice {
     @apply text-small text-accent;
+  }
+
+  /* A seasonal theme's two colour dots in the Creator Studio picker. The
+     colour is the theme's own token value, set inline as data. */
+  .swatch {
+    @apply block h-3.5 w-3.5 rounded-full border border-line;
   }
 
   /* The frame a listing with an external embed source opens in. */
