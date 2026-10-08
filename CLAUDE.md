@@ -106,9 +106,10 @@ QuestVerse is a browsable arcade of text-adventure titles you play in the
 app. Five launch titles ship as committed static data (`public/catalog.js`),
 played by a pure, deterministic engine (`public/engine.js`) through a
 built-in runner. A Creator Studio tab (`public/admin.js`) lets someone
-publish, edit, preview and remove listings on top of that catalog. There is
-no server state; progress, achievements and the Creator Studio's listings
-live in the browser (localStorage, namespaced per signed-in person).
+publish, edit, preview and remove listings on top of that catalog. The only
+server state is the live seasonal theme (below); progress, achievements and
+the Creator Studio's listings live in the browser (localStorage, namespaced
+per signed-in person).
 
 ## Design
 
@@ -127,6 +128,10 @@ change follows it, and updates it when a request changes the look on purpose.
   `.dark` carry the same token values in `styles/tailwind-input.css`, so
   the app renders identically in Homeroom's light and dark themes. Do not
   "fix" this by adding a light look.
+- **Seasonal themes:** Neon (the default, the palette above), Halloween,
+  Winter Lights and Lunar New Year. Each re-tints the neutrals, the accent
+  and the signal, and keeps the alarm magenta, the single dark look and the
+  4.5:1 rule. Neon must look exactly as it did before themes existed.
 
 The kit is in `styles/tailwind-input.css`: colour tokens with a light and
 a dark value (named in `tailwind.config.js`), and a few components
@@ -172,6 +177,16 @@ Re-theme by changing the token values there, keeping every text pair at
 - Progress and achievements live in `localStorage`, keyed
   `qv1:<userId>:...`. An offline load carries no token, so the store falls
   back to a shared `anon` namespace rather than deleting real data.
+- The seasonal theme is one global setting, the row `key = 'theme'` in the
+  public `qv_settings` table, read by every client from `GET /api/me`
+  (`theme`) and written only by `PUT /api/theme`, gated by the same
+  `STUDIO_USERNAMES` allowlist. A theme is a set of token overrides under
+  `html[data-theme="<id>"]` in `styles/tailwind-input.css`; Neon sets no
+  attribute. A new theme is a block there, an entry in `public/themes.js`
+  and an id in `THEME_IDS` in `server.js`. Picking a theme in the studio
+  previews it on that screen only until Apply theme. There is no automatic,
+  date-based switching yet; if one is added, read the date through
+  `usernode.now()` / `req.now` ("Time-dependent features").
 - Content: every title is suspense, evasion and puzzles. Items are survival
   utility used as wards and decoys, never weapons, and there is no combat,
   gore or gambling. User-facing copy avoids em dashes.

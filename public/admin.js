@@ -8,6 +8,7 @@
 
 import { CATALOG } from './catalog.js';
 import { el } from './dom.js';
+import { THEMES, DEFAULT_THEME, isTheme, themeName, applyTheme } from './themes.js';
 
 const STORE_VERSION = 1;
 
@@ -185,6 +186,111 @@ export function validateListing(form) {
   return errors;
 }
 
+/* ── Seasonal theme card ──────────────────────────────────────────────── */
+
+// Pick the look every player sees. Choosing a row previews it on this screen
+// only; Apply theme stores it on the server for everyone. The shell drops an
+// unapplied preview when the viewer leaves the studio.
+function themeCard({ token, liveTheme, onThemeChange }) {
+  let live = isTheme(liveTheme) ? liveTheme : DEFAULT_THEME;
+  let picked = live;
+  let saving = false;
+  let notice = '';
+  let failed = false;
+
+  const livePill = el('span', { class: 'status-pill border-accent text-accent' });
+  const listEl = el('div', { class: 'list' });
+  const noticeNode = el('p', { class: 'form-notice', role: 'status', 'aria-live': 'polite', hidden: 'hidden' });
+  const errorText = el('p', { class: 'form-error' });
+  const retryBtn = el('button', { class: 'btn-secondary', type: 'button', text: 'Retry', onclick: () => apply() });
+  const errorNode = el('div', { class: 'flex flex-wrap items-center gap-2', role: 'alert', hidden: 'hidden' }, errorText, retryBtn);
+  const applyBtn = el('button', { class: 'btn-secondary', type: 'button', text: 'Apply theme', onclick: () => apply() });
+
+  // Rows are built once and updated in place, so a radio keeps keyboard
+  // focus while arrow keys move through the themes.
+  const rows = THEMES.map((t) => {
+    const input = el('input', {
+      type: 'radio', name: 'theme', value: t.id, class: 'h-4 w-4 shrink-0 accent-accent [color-scheme:dark]',
+      onchange: () => {
+        picked = t.id;
+        failed = false;
+        notice = picked === live ? '' : 'Previewing ' + t.name + ' on your screen only. Apply it to show it to every player.';
+        applyTheme(picked);
+        paint();
+      },
+    });
+    const liveTag = el('span', { class: 'status-pill border-accent text-accent', text: 'Live' });
+    const label = el('label', { class: 'list-row cursor-pointer', 'data-theme-option': t.id },
+      input,
+      el('span', { class: 'flex shrink-0 gap-1', 'aria-hidden': 'true' },
+        t.swatches.map((rgb) => el('span', { class: 'swatch', style: 'background-color: rgb(' + rgb + ')' }))),
+      el('span', { class: 'flex min-w-0 flex-1 flex-col' },
+        el('span', { class: 'text-body font-medium', text: t.name }),
+        el('span', { class: 'text-small text-muted', text: t.description }),
+      ),
+      liveTag,
+    );
+    return { id: t.id, input, label, liveTag };
+  });
+  listEl.replaceChildren(...rows.map((r) => r.label));
+
+  function paint() {
+    livePill.textContent = 'Live: ' + themeName(live);
+    for (const r of rows) {
+      r.input.checked = r.id === picked;
+      r.label.classList.toggle('bg-raised', r.id === picked);
+      r.liveTag.hidden = r.id !== live;
+    }
+    noticeNode.textContent = notice;
+    noticeNode.hidden = !notice || failed;
+    errorText.textContent = 'Could not apply the theme. Players still see ' + themeName(live) + '.';
+    errorNode.hidden = !failed;
+    retryBtn.disabled = saving;
+    applyBtn.disabled = saving || picked === live;
+    applyBtn.textContent = saving ? 'Applying...' : 'Apply theme';
+  }
+
+  async function apply() {
+    if (saving || picked === live) return;
+    saving = true;
+    failed = false;
+    paint();
+    const target = picked;
+    try {
+      const res = await fetch('/api/theme', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', 'x-usernode-token': token || '' },
+        body: JSON.stringify({ theme: target }),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      live = target;
+      notice = themeName(live) + ' is live for every player.';
+      if (onThemeChange) onThemeChange(live);
+      applyTheme(picked);
+    } catch {
+      // Players still see the old theme, so this screen shows it too until
+      // Retry; the pick stays selected so Retry applies it.
+      failed = true;
+      applyTheme(live);
+    }
+    saving = false;
+    paint();
+  }
+
+  paint();
+  return el('section', { class: 'card flex flex-col gap-3', 'data-theme-picker': '' },
+    el('div', { class: 'flex flex-wrap items-center justify-between gap-2' },
+      el('h2', { class: 'text-heading', text: 'Seasonal theme' }),
+      livePill,
+    ),
+    el('p', { class: 'text-small text-muted', text: 'Pick the look every player sees. Match it to a real-world event, then switch back when it ends.' }),
+    listEl,
+    noticeNode,
+    errorNode,
+    el('div', { class: 'flex flex-wrap items-center justify-end gap-2' }, applyBtn),
+  );
+}
+
 /* ── Creator Studio screen ─────────────────────────────────────────────── */
 
 function thumbFallback() {
@@ -206,7 +312,7 @@ function thumb(listing) {
   return wrap;
 }
 
-export function renderAdmin({ uid, onCountChange, nav }) {
+export function renderAdmin({ uid, onCountChange, nav, token, liveTheme, onThemeChange }) {
   let rows = adminListings(uid);
   let mode = 'new';
   let editingId = '';
@@ -297,6 +403,7 @@ export function renderAdmin({ uid, onCountChange, nav }) {
       el('h1', { class: 'text-title', id: 'admin-title', text: 'Admin dashboard' }),
       el('p', { class: 'text-body text-muted', text: 'Publish a game, update its listing, and manage what the arcade shows.' }),
     ),
+    themeCard({ token, liveTheme, onThemeChange }),
     el('div', { class: 'flex flex-wrap items-center justify-between gap-2' },
       countNode,
       addBtn,
