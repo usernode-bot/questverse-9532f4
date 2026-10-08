@@ -623,6 +623,74 @@ function renderRunner(title, params) {
   return screen;
 }
 
+/* ── Prelude ───────────────────────────────────────────────────────────────
+ * A listing's optional prelude story, set in the Creator Studio. When a run
+ * starts fresh (not a Resume, not the demo state) it rolls up the screen like
+ * film credits over an empty runner; the run is painted when the roll ends or
+ * the player skips. A title with no prelude starts right away, as before.
+ */
+const PRELUDE_SPEED = 40; // px per second, slow enough to read along
+
+function preludeFor(titleId) {
+  const listing = findListing(listings, titleId);
+  return listing ? String(listing.prelude || '').trim() : '';
+}
+
+function renderPrelude(title, text, onDone) {
+  const still = reducedMotion.matches;
+  let finished = false;
+  let anim = null;
+
+  const paragraphs = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const crawl = el('div', { class: 'prelude-crawl', 'data-prelude-crawl': '' },
+    el('p', { class: 'section-label', text: 'Prelude' }),
+    el('h1', { class: 'text-title', text: title.title }),
+    paragraphs.map((p) => el('p', { class: 'whitespace-pre-line text-body text-fg', text: p })),
+  );
+  const viewport = el('div', { class: 'prelude-viewport' + (still ? ' prelude-static' : '') }, crawl);
+  const skipBtn = el('button', {
+    class: 'btn-secondary', type: 'button', 'data-prelude-skip': '',
+    text: still ? 'Start game' : 'Skip',
+    onClick: () => finish(),
+  });
+  const overlay = el('div', {
+    class: 'prelude', role: 'dialog', 'aria-modal': 'true', 'aria-label': title.title + ' prelude',
+    'data-prelude': title.id,
+  }, viewport, el('div', { class: 'prelude-bar' }, skipBtn));
+
+  function onKey(e) { if (e.key === 'Escape') finish(); }
+
+  function finish() {
+    if (finished) return;
+    finished = true;
+    window.removeEventListener('keydown', onKey);
+    if (anim) { try { anim.cancel(); } catch { /* ignore */ } }
+    // A navigation away already replaced the screen; nothing to start.
+    if (!overlay.isConnected) return;
+    overlay.remove();
+    onDone();
+  }
+
+  window.addEventListener('keydown', onKey);
+  // Start once the overlay is in the page, so the crawl can be measured.
+  requestAnimationFrame(() => {
+    if (finished) return;
+    if (!overlay.isConnected) { finish(); return; }
+    try { skipBtn.focus({ preventScroll: true }); } catch { /* ignore */ }
+    if (still || typeof crawl.animate !== 'function') return;
+    // Enter from low on the screen, not below it, so there is no empty wait.
+    const from = Math.round(viewport.clientHeight * 0.75);
+    const to = -crawl.offsetHeight;
+    anim = crawl.animate(
+      [{ transform: 'translateY(' + from + 'px)' }, { transform: 'translateY(' + to + 'px)' }],
+      { duration: Math.max(6000, ((from - to) / PRELUDE_SPEED) * 1000), easing: 'linear', fill: 'both' },
+    );
+    anim.finished.then(() => finish()).catch(() => {});
+  });
+
+  return overlay;
+}
+
 /* ── Router ────────────────────────────────────────────────────────────── */
 let drawerPanel = null;
 
@@ -644,7 +712,9 @@ function route() {
     const title = findTitle(parts[1]);
     if (!title) { app.replaceChildren(renderNotFound()); return; }
     app.replaceChildren(renderRunner(title, params));
-    paintRunner();
+    const prelude = runner.demo || runner.resumeBanner ? '' : preludeFor(title.id);
+    if (prelude) app.append(renderPrelude(title, prelude, () => paintRunner()));
+    else paintRunner();
     return;
   }
   if (parts[0] === 'admin') {
