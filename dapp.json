@@ -32,6 +32,11 @@
       "expectSelector": "[data-theme-picker] [data-theme-option=\"halloween\"]"
     },
     {
+      "name": "Background music uploader renders on each choice in Creator Studio",
+      "path": "/#/admin",
+      "expectSelector": "[data-music-editor] [data-trigger=\"timun-suri:0:A\"] [data-music-upload]"
+    },
+    {
       "name": "Game preview renders",
       "path": "/#/embed/timun-suri",
       "expectText": "EMBED SOURCE"

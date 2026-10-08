@@ -169,6 +169,16 @@ Re-theme by changing the token values there, keeping every text pair at
   reports the `studio` flag the client reads. The decision is authorised from
   the verified iframe token's `req.user.username`, never from a
   client-supplied value. Add a person by editing that set.
+- Background music (`public/music.js`): the Creator Studio attaches one
+  .mp3 or .aac track to a choice, keyed `<titleId>:<stageIndex>:<choiceKey>`.
+  Picking that choice in the runner starts its track looping and replaces the
+  current one; a choice with no track leaves the music alone. Leaving the
+  runner, Restart and Play again stop it. The index lives at
+  `qv1:<userId>:music`. A track is offered to `usernode.uploadFile` first, but
+  platform storage only accepts images today, so in practice the bytes are
+  kept in this browser's IndexedDB (`questverse-music`), like the listings.
+  Playback starts inside the choice's tap handler from a URL resolved when the
+  runner opened, because phones only allow audio from a gesture.
 - A listing's `embedUrl` decides how it opens: `internal:<title-id>` runs
   the built-in runner, an `https` URL is embedded in a sandboxed frame.
 - The engine in `public/engine.js` is pure and deterministic (no DOM, no
