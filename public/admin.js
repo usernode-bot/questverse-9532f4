@@ -9,6 +9,10 @@
 import { CATALOG } from './catalog.js';
 import { el } from './dom.js';
 import { THEMES, DEFAULT_THEME, isTheme, themeName, applyTheme } from './themes.js';
+import {
+  ACCEPT, triggerKey, readTracks, validateTrackFile, saveTrack, removeTrack,
+  trackUrl, preloadTitle, playUrl, stopMusic, nowPlaying, onPlaybackChange,
+} from './music.js';
 
 const STORE_VERSION = 1;
 
@@ -291,6 +295,184 @@ function themeCard({ token, liveTheme, onThemeChange }) {
   );
 }
 
+/* ── Background music card ────────────────────────────────────────────── */
+
+function formatSize(bytes) {
+  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  return Math.max(1, Math.round(bytes / 1024)) + ' KB';
+}
+
+// Attach a track to each choice a player can pick in a built-in title. When
+// that choice fires in the runner, its track takes over the background music.
+function musicCard({ uid }) {
+  let titleId = CATALOG[0].id;
+  let urls = new Map();       // triggerKey -> resolved URL, for instant preview
+  const busy = new Set();     // triggers with an upload in flight
+  const rowErrors = {};       // triggerKey -> message
+  const rowNotices = {};      // triggerKey -> message
+  let confirmingKey = null;
+
+  const select = el('select', {
+    class: 'field', id: 'music-title', name: 'music-title',
+    onchange: () => { titleId = select.value; confirmingKey = null; stopMusic(); load(); },
+  }, CATALOG.map((t) => el('option', { value: t.id, text: t.title })));
+  const stagesEl = el('div', { class: 'flex flex-col gap-4' });
+
+  async function load() {
+    paint();
+    const title = CATALOG.find((t) => t.id === titleId);
+    const want = titleId;
+    const resolved = await preloadTitle(uid, title);
+    if (want === titleId) { urls = resolved; paint(); }
+  }
+
+  async function onFile(key, file) {
+    delete rowErrors[key];
+    delete rowNotices[key];
+    const problem = await validateTrackFile(file);
+    if (problem) { rowErrors[key] = problem; paint(); return; }
+    busy.add(key);
+    paint();
+    try {
+      if (nowPlaying() === key) stopMusic();
+      const rec = await saveTrack(uid, key, file);
+      urls.delete(key);
+      const url = await trackUrl(uid, key);
+      if (url) urls.set(key, url);
+      rowNotices[key] = rec.source === 'platform'
+        ? 'Uploaded "' + rec.name + '".'
+        : 'Saved "' + rec.name + '" in this browser.';
+    } catch {
+      rowErrors[key] = 'Could not save this track. This browser may be out of storage space. Try a smaller file.';
+    }
+    busy.delete(key);
+    paint();
+  }
+
+  async function preview(key) {
+    if (nowPlaying() === key) { stopMusic(); return; }
+    let url = urls.get(key);
+    if (!url) {
+      try { url = await trackUrl(uid, key); } catch { url = null; }
+      if (url) urls.set(key, url);
+    }
+    if (!url) { rowErrors[key] = 'This track is no longer stored here. Upload it again.'; paint(); return; }
+    playUrl(key, url, { loop: false });
+  }
+
+  async function remove(key) {
+    confirmingKey = null;
+    if (nowPlaying() === key) stopMusic();
+    try {
+      await removeTrack(uid, key);
+      urls.delete(key);
+      delete rowErrors[key];
+      rowNotices[key] = 'Track removed.';
+    } catch {
+      rowErrors[key] = 'Could not remove this track. Try again.';
+    }
+    paint();
+  }
+
+  function row(stageIndex, choice, tracks) {
+    const key = triggerKey(titleId, stageIndex, choice.key);
+    const rec = tracks[key];
+    const uploading = busy.has(key);
+    const playing = nowPlaying() === key;
+
+    const fileInput = el('input', {
+      type: 'file', accept: ACCEPT, class: 'hidden', 'aria-hidden': 'true', tabindex: '-1',
+      onchange: () => {
+        const f = fileInput.files && fileInput.files[0];
+        fileInput.value = '';
+        if (f) onFile(key, f);
+      },
+    });
+
+    let actions;
+    if (confirmingKey === key) {
+      actions = [
+        el('button', { class: 'btn-secondary', type: 'button', text: 'Confirm remove', onclick: () => remove(key) }),
+        el('button', { class: 'btn-secondary', type: 'button', text: 'Keep', onclick: () => { confirmingKey = null; paint(); } }),
+      ];
+    } else {
+      actions = [
+        el('button', {
+          class: 'btn-secondary', type: 'button', 'data-music-upload': '',
+          text: uploading ? 'Saving...' : rec ? 'Replace track' : 'Upload track',
+          disabled: uploading ? 'disabled' : null,
+          onclick: () => fileInput.click(),
+        }),
+      ];
+      if (rec && !uploading) {
+        actions.push(el('button', {
+          class: 'btn-secondary', type: 'button', 'data-music-preview': '',
+          text: playing ? 'Stop' : 'Preview', 'aria-pressed': playing ? 'true' : 'false',
+          onclick: () => preview(key),
+        }));
+        actions.push(el('button', {
+          class: 'btn-secondary', type: 'button', text: 'Remove', 'data-music-remove': '',
+          onclick: () => { confirmingKey = key; paint(); },
+        }));
+      }
+    }
+
+    const status = rec
+      ? rec.name + ' | ' + formatSize(rec.size) + (rec.source === 'local' ? ' | Stored in this browser' : '')
+      : 'No track. The current music keeps playing.';
+
+    return el('div', { class: 'list-row items-start gap-3', 'data-trigger': key },
+      el('span', { class: 'choice-key', text: choice.key }),
+      el('div', { class: 'flex min-w-0 flex-1 flex-col gap-1' },
+        el('p', { class: 'text-body', text: choice.text }),
+        el('p', { class: 'text-small ' + (rec ? 'text-signal' : 'text-muted'), 'data-music-status': '', text: status }),
+        rowErrors[key] ? el('p', { class: 'form-error', role: 'alert', text: rowErrors[key] }) : null,
+        rowNotices[key] && !rowErrors[key] ? el('p', { class: 'form-notice', role: 'status', text: rowNotices[key] }) : null,
+        el('div', { class: 'flex flex-wrap items-center gap-2 pt-1' }, actions),
+      ),
+      fileInput,
+    );
+  }
+
+  function paint() {
+    select.value = titleId;
+    const title = CATALOG.find((t) => t.id === titleId);
+    const tracks = readTracks(uid);
+    // Rows are rebuilt, so put keyboard focus back on the same row's button.
+    const active = document.activeElement;
+    const activeRow = active && stagesEl.contains(active) ? active.closest('[data-trigger]') : null;
+    const activeAttr = activeRow ? ['data-music-upload', 'data-music-preview', 'data-music-remove'].find((a) => active.hasAttribute(a)) : null;
+    stagesEl.replaceChildren(...title.stages.map((stage, i) =>
+      el('div', { class: 'flex flex-col gap-2' },
+        el('h3', { class: 'text-body font-medium', text: 'Stage ' + (i + 1) + ': ' + ((title.stageNames || [])[i] || '') }),
+        el('div', { class: 'list' }, (stage.choices || []).map((c) => row(i, c, tracks))),
+      )));
+    if (activeRow) {
+      const rowEl = stagesEl.querySelector('[data-trigger="' + activeRow.dataset.trigger + '"]');
+      const target = rowEl && ((activeAttr && rowEl.querySelector('[' + activeAttr + ']')) || rowEl.querySelector('button'));
+      if (target) { try { target.focus({ preventScroll: true }); } catch { /* ignore */ } }
+    }
+  }
+
+  // Keep Preview / Stop labels honest when a preview ends by itself.
+  const off = onPlaybackChange(() => {
+    if (!root.isConnected) { off(); return; }
+    paint();
+  });
+
+  const root = el('section', { class: 'card flex flex-col gap-3', 'data-music-editor': '' },
+    el('h2', { class: 'text-heading', text: 'Background music' }),
+    el('p', { class: 'text-small text-muted', text: 'Add an .mp3 or .aac track to any choice. When a player picks that choice, its track loops as the background music and replaces the one before it.' }),
+    el('div', { class: 'flex flex-col gap-1' },
+      el('label', { class: 'text-small text-muted', for: 'music-title', text: 'Game' }),
+      select,
+    ),
+    stagesEl,
+  );
+  load();
+  return root;
+}
+
 /* ── Creator Studio screen ─────────────────────────────────────────────── */
 
 function thumbFallback() {
@@ -404,6 +586,7 @@ export function renderAdmin({ uid, onCountChange, nav, token, liveTheme, onTheme
       el('p', { class: 'text-body text-muted', text: 'Publish a game, update its listing, and manage what the arcade shows.' }),
     ),
     themeCard({ token, liveTheme, onThemeChange }),
+    musicCard({ uid }),
     el('div', { class: 'flex flex-wrap items-center justify-between gap-2' },
       countNode,
       addBtn,

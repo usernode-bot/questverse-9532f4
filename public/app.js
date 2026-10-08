@@ -23,6 +23,9 @@ import {
 import {
   DEFAULT_THEME, isTheme, themeName, applyTheme, cachedTheme, cacheTheme,
 } from './themes.js';
+import {
+  triggerKey, preloadTitle, playUrl, stopMusic, setMuted, isMuted,
+} from './music.js';
 
 const app = document.getElementById('app');
 const token = new URLSearchParams(window.location.search).get('token') || '';
@@ -489,7 +492,7 @@ function paintRunner() {
           }),
           el('button', {
             class: 'btn-secondary', type: 'button', text: 'Start over',
-            onClick: () => { runner.resumeBanner = null; runner.state = createRun(title); saveRunner(); paintRunner(); },
+            onClick: () => { stopMusic(); runner.resumeBanner = null; runner.state = createRun(title); saveRunner(); paintRunner(); },
           }),
         ),
       )
@@ -499,9 +502,16 @@ function paintRunner() {
     el('div', { class: 'flex flex-wrap items-center justify-between gap-2' },
       el('a', { class: 'btn-secondary', href: '#/', text: 'Back to Arcade' }),
       el('div', { class: 'flex gap-2' },
+        runner.music && runner.music.size
+          ? el('button', {
+            class: 'btn-secondary', type: 'button', 'data-music-toggle': '',
+            text: isMuted() ? 'Music off' : 'Music on', 'aria-pressed': isMuted() ? 'false' : 'true',
+            onClick: () => { setMuted(!isMuted()); paintRunner(); },
+          })
+          : null,
         el('button', {
           class: 'btn-secondary', type: 'button', text: 'Restart',
-          onClick: () => { runner.state = createRun(title); saveRunner(); paintRunner(); },
+          onClick: () => { stopMusic(); runner.state = createRun(title); saveRunner(); paintRunner(); },
         }),
       ),
     ),
@@ -520,7 +530,7 @@ function paintRunner() {
       el('div', { class: 'flex flex-wrap gap-2' },
         el('button', {
           class: 'btn-primary', type: 'button', text: 'Play again',
-          onClick: () => { runner.state = createRun(title); saveRunner(); paintRunner(); },
+          onClick: () => { stopMusic(); runner.state = createRun(title); saveRunner(); paintRunner(); },
         }),
         el('a', { class: 'btn-secondary', href: '#/', text: 'Back to Arcade' }),
       ),
@@ -531,6 +541,11 @@ function paintRunner() {
       onClick: (e) => {
         if (runner.busy || runner.state.finished) return;
         runner.busy = true;
+        // The choice is an action trigger: if the creator gave it a track,
+        // that track takes over now, inside the tap so phones allow it.
+        const key = triggerKey(title.id, runner.state.stageIndex, c.key);
+        const track = runner.music && runner.music.get(key);
+        if (track) playUrl(key, track);
         const next = applyChoice(title, runner.state, c.key);
         runner.busy = false;
         afterAction(next);
@@ -583,7 +598,15 @@ function renderRunner(title, params) {
   const demo = params.get('demo') === '1';
   const fresh = demo ? demoState(title) : createRun(title);
   const saved = demo ? null : getProgress(title.id);
-  runner = { title, state: fresh, demo, resumeBanner: null };
+  runner = { title, state: fresh, demo, resumeBanner: null, music: new Map() };
+  // Resolve the title's tracks now, so a choice tap can start one at once.
+  const mine = runner;
+  preloadTitle(uid, title).then((m) => {
+    if (runner !== mine) return;
+    const had = mine.music.size;
+    mine.music = m;
+    if (!had && m.size) paintRunner();
+  }).catch(() => {});
 
   const screen = el('main', { id: 'runner-screen', class: 'mx-auto flex max-w-2xl flex-col gap-6 px-4 py-8' });
 
@@ -707,6 +730,9 @@ async function loadIdentity() {
 window.addEventListener('hashchange', (e) => {
   // A new navigation clears an open runner.
   if (runner && !window.location.hash.startsWith('#/play/')) runner = null;
+  // Music belongs to one run (or one studio preview); leaving the screen
+  // ends it.
+  stopMusic();
   if (drawerPanel && !window.location.hash.startsWith('#/title/')) drawerPanel = null;
   // A theme picked in the Creator Studio but not applied is a preview for
   // that screen only; anywhere else shows the live theme.
