@@ -37,6 +37,11 @@
       "expectSelector": "[data-music-editor] [data-trigger=\"timun-suri:0:A\"] [data-music-upload]"
     },
     {
+      "name": "Prelude story field renders in the Creator Studio form",
+      "path": "/#/admin",
+      "expectSelector": "#admin-prelude"
+    },
+    {
       "name": "Game preview renders",
       "path": "/#/embed/timun-suri",
       "expectText": "EMBED SOURCE"

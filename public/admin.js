@@ -27,13 +27,14 @@ export const DEFAULT_LISTINGS = CATALOG.map((t) => ({
   banner: '',
   story: [t.lore, t.background].filter(Boolean).join(' '),
   startScene: t.opening || '',
+  prelude: '',
   inventory: (t.startingInventory || []).join(', '),
   embedUrl: 'internal:' + t.id,
 }));
 
 export const KEYS = [
   'title', 'tagline', 'tags', 'author', 'banner',
-  'story', 'startScene', 'inventory', 'embedUrl',
+  'story', 'startScene', 'prelude', 'inventory', 'embedUrl',
 ];
 
 function ns(uid) { return 'qv1:' + uid + ':listings'; }
@@ -548,6 +549,7 @@ export function renderAdmin({ uid, onCountChange, nav, token, liveTheme, onTheme
   const bannerInput = textInput('banner', 'url', 'https://images.example.com/banner.jpg');
   const storyInput = textArea('story', 'A short summary of the game lore.', 3);
   const sceneInput = textArea('startScene', 'The text printed to the player at the start.', 2);
+  const preludeInput = textArea('prelude', 'Long ago, in a jungle where the old stories still walk...', 5);
   const inventoryInput = textInput('inventory', 'text', 'Cucumber Seeds: 1, Sewing Needles: 1, Salt: 1');
   const embedInput = textInput('embedUrl', 'text', 'internal:timun-suri');
 
@@ -571,6 +573,8 @@ export function renderAdmin({ uid, onCountChange, nav, token, liveTheme, onTheme
       el('p', { class: 'text-small text-muted', text: 'Leave blank to keep the drawn key art.' })),
     field('story', 'Short story summary and lore', storyInput),
     field('startScene', 'Starting scene text', sceneInput),
+    field('prelude', 'Prelude story (optional)', preludeInput,
+      el('p', { class: 'text-small text-muted', text: 'Rolls up the screen like film credits when a player presses Run, before the game starts. Leave a blank line between paragraphs. Leave it empty to start the game right away.' })),
     field('inventory', 'Initial inventory items (comma separated)', inventoryInput),
     field('embedUrl', 'Embed source', embedInput,
       el('p', { class: 'text-small text-muted', text: 'Use internal:<title-id> for a built-in title, or an https URL for an external game.' })),
