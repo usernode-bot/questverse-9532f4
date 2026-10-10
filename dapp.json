@@ -1,5 +1,8 @@
 {
   "description": "Your gateway to web3 text-based adventures and arcade games.",
+  "icon": {
+    "image": "brand/icon.jpg"
+  },
   "secrets": [],
   "governance": {
     "approvers": "invited",
