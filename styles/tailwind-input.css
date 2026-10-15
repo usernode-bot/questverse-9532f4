@@ -13,16 +13,21 @@
 @tailwind utilities;
 
 /* ── Colour tokens ────────────────────────────────────────────────────────
- * RetroRig is drawn as its own scene: ONE fixed look, a late-1990s CRT
- * desktop. It is the documented exception for a game (see "## Design" in
- * CLAUDE.md). :root and .dark carry the SAME values, so the app renders
- * identically in Homeroom's light and dark themes. Do not "fix" this by
- * adding a light look.
+ * GameWatch is drawn as its own scene: ONE fixed look, a handheld whose
+ * panel is the whole point. It is the documented exception for a game (see
+ * "## Design" in CLAUDE.md). :root and .dark carry the SAME values, so the
+ * app renders identically in Homeroom's light and dark themes. Do not "fix"
+ * this by adding a light look.
  *
- * The palette: a near-black screen ground, a lifted phosphor-grey surface,
- * a green CRT accent for the one action, an amber lamp for warnings, and a
- * signal cyan used for anything the rig prints in its own voice (the boot
- * log, the prompt's reply lines, the on-screen readouts).
+ * The palette: a near-black shell, a lifted grey bezel, the panel's own
+ * green-grey LCD for the screen itself, a phosphor-green accent for the one
+ * action, an amber lamp for a caution, and a signal cyan used for anything
+ * the handheld PRINTS in its own voice (the boot log, a terminal reply, the
+ * readouts under a panel).
+ *
+ * Three skins sit on top of these values (classic, silver, night). They are
+ * shades of the same scene, not a second look: a skin swaps the panel and
+ * shell tones and nothing else, so every component below is unchanged.
  */
 @layer base {
   :root,
@@ -106,12 +111,12 @@
     @apply flex flex-col items-center gap-2 px-4 py-8 text-center;
   }
 
-  /* ── RetroRig pieces ───────────────────────────────────────────────────
+  /* ── GameWatch pieces ──────────────────────────────────────────────────
    * Built from the tokens above; nothing here invents a colour or a font. */
 
-  /* The CRT: a stack of bezel, glass and controls. The whole desktop lives
-     inside the glass. The close-up rings, the scanline layer and the
-     vignette are drawn here so no screen has to repeat them. */
+  /* The handheld: a stack of shell, bezel, panel and controls. The whole
+     app lives inside the panel. The scanline layer and the corner falloff
+     are drawn here so no screen has to repeat them. */
   .rig {
     @apply flex min-h-screen flex-col gap-3 bg-ground px-3 py-3 sm:px-6 sm:py-6;
   }
@@ -134,19 +139,38 @@
       transparent 3px
     );
   }
-  /* The rounded-corner falloff of a real tube, in the app's own ground
-     colour so it never fights the content. */
+  /* The rounded-corner falloff of an LCD panel, in the app's own ground
+     colour so it never fights the content. Its strength is the viewer's
+     Curvature setting, mirrored here from the same number the picture
+     pipeline uses, so the frame and the screen inside it agree. */
   .rig-vignette {
     @apply pointer-events-none absolute inset-0;
-    background: radial-gradient(120% 100% at 50% 50%, transparent 55%, rgb(var(--ground) / 0.85) 100%);
+    background: radial-gradient(
+      calc(150% - var(--rig-curvature, 20) * 1%) 120% at 50% 50%,
+      transparent 40%,
+      rgb(var(--ground) / calc(0.5 + var(--rig-curvature, 20) / 100)) 100%
+    );
   }
-  /* The controls under the glass: the Start button, the running windows and
-     the clock. */
+  /* The controls under the panel: the running screen's name, the simulation
+     lamp and the clock. */
   .rig-controls {
     @apply flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-raised px-3 py-2;
   }
 
-  /* A Start-menu entry, and any full-width row inside a module window. */
+  /* The module bar: the six dashboard modules, across the top of the panel.
+     A module is a plain button until it is the one showing. */
+  .rig-nav {
+    @apply flex flex-wrap items-center gap-1 rounded-xl border border-line bg-raised px-2 py-2;
+  }
+  .rig-nav-item {
+    @apply inline-flex min-h-11 items-center rounded-lg border border-transparent px-3 text-body text-muted
+      hover:bg-surface hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  }
+  .rig-nav-item-on {
+    @apply border-line bg-surface font-medium text-accent;
+  }
+
+  /* A full-width row inside a module window. */
   .rig-entry {
     @apply flex w-full items-start gap-3 rounded-lg border border-line bg-surface px-3 py-3 text-left
       text-body text-fg hover:bg-raised focus-visible:outline-none focus-visible:ring-2
@@ -194,25 +218,22 @@
       text-amber;
   }
 
-  /* A key on the virtual keyboard: fixed-width, monospace, and lit while the
-     mapped joystick direction is being pressed. */
-  .rig-key {
-    @apply inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-line bg-surface
-      px-2 font-mono text-small text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  /* The handheld's own keypad under a running panel: nine keys, each showing
+     the key it is mapped to over the name of what it does. */
+  .rig-keypad {
+    @apply flex flex-col gap-3;
   }
-  .rig-key-lit {
-    @apply border-accent bg-raised text-accent;
+  .rig-keypad-row {
+    @apply flex flex-wrap gap-2;
   }
-  .rig-key-conflict {
-    @apply border-amber text-amber;
-  }
-  /* A keycap row: the two rows of the alphanumeric block. */
-  .rig-keyrow {
-    @apply flex flex-wrap gap-1;
+  .rig-button {
+    @apply inline-flex min-h-11 min-w-11 flex-col items-start justify-center gap-0.5 rounded-lg border
+      border-line bg-surface px-3 py-2 text-fg hover:bg-raised focus-visible:outline-none
+      focus-visible:ring-2 focus-visible:ring-focus;
   }
 
-  /* The screen inside the glass where a built-in game draws. The canvas
-     fills it; the rig's own readout sits under it. */
+  /* The LCD panel a built-in title draws on. The canvas fills it, the
+     simulation lamp sits on it, and the readout sits under it. */
   .rig-screen {
     @apply relative w-full overflow-hidden rounded-lg border border-line bg-ground;
   }
@@ -226,11 +247,110 @@
       rounded-full border border-line bg-raised px-4 py-2 text-small text-fg;
   }
 
-  /* The how-to-play sheet: a full-screen layer over the rig. */
+  /* The how-to-play sheet: a full-screen layer over the panel. */
   .rig-sheet {
     @apply fixed inset-0 z-50 flex flex-col bg-ground;
   }
   .rig-sheet-panel {
     @apply mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 overflow-y-auto p-4 sm:p-6;
+  }
+
+  /* ── The Arcade ────────────────────────────────────────────────────────
+   * The sliding cover header, the genre tags and the poster-plus-title rows. */
+
+  /* The cover strip: it slides sideways, and its own control keeps it from
+     needing a drag. Snap points make a slide land on a cover. */
+  .gw-cover-strip {
+    @apply flex snap-x gap-3 overflow-x-auto rounded-xl border border-line bg-ground p-3;
+    scrollbar-width: thin;
+  }
+  .gw-cover-card {
+    @apply flex min-w-[10rem] snap-start flex-col items-start gap-1 rounded-lg border border-line bg-surface
+      p-2 text-left text-fg hover:bg-raised focus-visible:outline-none focus-visible:ring-2
+      focus-visible:ring-focus;
+  }
+  /* A cover is segment art, so it is scaled by whole steps and never
+     smoothed: a segment has to stay a block. */
+  .gw-cover-art {
+    @apply block h-auto w-full rounded border border-line bg-ground;
+    image-rendering: pixelated;
+  }
+  .gw-cover-title {
+    @apply text-body font-medium;
+  }
+  .gw-poster {
+    @apply flex w-28 flex-col items-start gap-1;
+  }
+  .gw-poster-art {
+    @apply block h-auto w-full rounded border border-line bg-ground;
+    image-rendering: pixelated;
+  }
+
+  /* A genre filter tag. The one that is filtering says so. */
+  .gw-tag {
+    @apply inline-flex min-h-11 items-center rounded-full border border-line bg-surface px-4 text-small
+      text-fg hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  }
+  .gw-tag-on {
+    @apply border-accent bg-accent font-medium text-on-accent;
+  }
+
+  /* The title list: one row per title, poster then name. The row is the
+     unit, so the poster and everything about the title stay together. */
+  .gw-list {
+    @apply flex flex-col gap-3;
+  }
+  .gw-row {
+    @apply flex flex-col gap-3 rounded-xl border border-line bg-surface p-3 sm:flex-row sm:p-4;
+  }
+  /* The genre the title is filed under, as a printed box. */
+  .gw-genre-box {
+    @apply inline-flex items-center rounded-md border border-amber px-2 py-0.5 text-small font-medium
+      text-amber;
+  }
+
+  /* The FTP tree: a read-only view of what the handheld holds. */
+  .gw-ftp {
+    @apply flex flex-col gap-1 overflow-x-auto rounded-lg border border-line bg-ground p-3;
+  }
+  .gw-ftp-row {
+    @apply flex min-h-8 flex-wrap items-baseline gap-3;
+  }
+
+  /* The Install UFW transcript: a scrolling block of printed lines. */
+  .gw-install-log {
+    @apply flex max-h-72 flex-col gap-1 overflow-y-auto;
+  }
+}
+
+/* ── Panel skins ──────────────────────────────────────────────────────────
+ * The OS screen sets the handheld's skin, which repaints the shell, the
+ * bezel and the panel. They are shades of the one fixed look, so nothing
+ * here changes a component or a layout: only the token values.
+ */
+@layer base {
+  .rig[data-skin="silver"] {
+    --ground: 44 47 46;
+    --surface: 68 72 70;
+    --raised: 92 97 94;
+    --fg: 238 242 236;
+    --muted: 176 184 178;
+    --line: 120 128 122;
+    --accent: 88 210 140;
+    --on-accent: 12 30 18;
+    --signal: 128 226 246;
+    --amber: 246 198 74;
+  }
+  .rig[data-skin="night"] {
+    --ground: 6 12 11;
+    --surface: 12 22 20;
+    --raised: 20 34 31;
+    --fg: 206 226 216;
+    --muted: 122 148 140;
+    --line: 38 60 56;
+    --accent: 66 200 116;
+    --on-accent: 4 20 10;
+    --signal: 96 200 224;
+    --amber: 230 176 48;
   }
 }

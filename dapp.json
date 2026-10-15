@@ -1,5 +1,5 @@
 {
-  "description": "A simulated retro PC: games, saves, and a DOS-style prompt.",
+  "description": "A simulated LCD handheld: eight original arcade titles, a Memory Card and a dashboard of simulated modules.",
   "icon": {
     "image": "brand/icon-2.jpg"
   },
@@ -12,10 +12,10 @@
   },
   "tests": [
     {
-      "id": "rig.desktop",
-      "name": "Rig desktop and Start menu render",
+      "id": "gw.arcade",
+      "name": "Arcade: cover header, genre tags and the eight titles",
       "path": "/#/",
-      "expectSelector": "[data-start]",
+      "expectSelector": "[data-gallery]",
       "visual": true,
       "impact": [
         "public/**",
@@ -26,54 +26,124 @@
       ]
     },
     {
-      "name": "Game Collection lists both built-in titles",
-      "path": "/#/collection",
-      "expectSelector": "[data-built-in] [data-title=\"deepwatch\"]"
+      "name": "Arcade lists the western-bar row",
+      "path": "/#/",
+      "expectSelector": "[data-game-list] [data-title=\"western-bar\"]"
     },
     {
-      "name": "Game Collection shows the catalogue form",
-      "path": "/#/collection",
-      "expectText": "Catalogued, not executed"
+      "name": "Arcade offers a genre filter tag",
+      "path": "/#/",
+      "expectSelector": "[data-filter-tag=\"Serve\"]"
     },
     {
-      "name": "Memory Card lists four slots for each built-in title",
-      "path": "/#/memory",
-      "expectSelector": "[data-card=\"mandate\"] [data-slot=\"mandate:4\"]"
+      "name": "Hungry Dragon how to play screen renders",
+      "path": "/#/how/hungry-dragon",
+      "expectSelector": "[data-how-to-title=\"hungry-dragon\"]"
     },
     {
-      "name": "Keyboard shows the joystick mapping",
-      "path": "/#/keyboard",
-      "expectSelector": "[data-mapping] [data-action=\"confirm\"]"
+      "name": "Terminal says it is simulated",
+      "path": "/#/terminal",
+      "expectText": "simulated"
     },
     {
-      "name": "Settings shows the picture sliders",
+      "name": "Terminal help lists ufw",
+      "path": "/#/terminal",
+      "expectText": "print the simulated firewall install transcript"
+    },
+    {
+      "name": "FTP shows the read-only file tree",
+      "path": "/#/ftp",
+      "expectSelector": "[data-ftp-tree]"
+    },
+    {
+      "name": "FTP tree lists the games directory",
+      "path": "/#/ftp",
+      "expectText": "/ games"
+    },
+    {
+      "name": "OS lists the panel skins",
+      "path": "/#/os",
+      "expectSelector": "[data-os-skins]"
+    },
+    {
+      "name": "OS says it is simulated",
+      "path": "/#/os",
+      "expectText": "Simulated OS"
+    },
+    {
+      "name": "Features states the two-month retention",
+      "path": "/#/features",
+      "expectText": "two months"
+    },
+    {
+      "name": "Features offers the Install UFW action",
+      "path": "/#/features",
+      "expectSelector": "[data-install-ufw-run]"
+    },
+    {
+      "name": "Settings shows the curvature slider",
+      "path": "/#/settings",
+      "expectSelector": "[data-setting=\"curvature\"]"
+    },
+    {
+      "name": "Settings still shows the scanline slider",
       "path": "/#/settings",
       "expectSelector": "[data-setting=\"scanline\"]"
     },
     {
-      "name": "Prompt answers VER with the rig version",
-      "path": "/#/prompt",
-      "expectText": "RetroRig DOS shell, simulated"
+      "name": "Settings shows the handheld key mapping",
+      "path": "/#/settings",
+      "expectSelector": "[data-mapping] [data-action=\"game_a\"]"
     },
     {
-      "name": "Deepwatch runs on the rig",
-      "path": "/#/play/deepwatch",
-      "expectSelector": "[data-game-canvas=\"deepwatch\"]"
+      "name": "Key mapping binds all nine handheld keys",
+      "path": "/#/settings",
+      "expectSelector": "[data-mapping] [data-action=\"reset\"]"
     },
     {
-      "name": "Mandate of Seasons runs on the rig",
-      "path": "/#/play/mandate",
-      "expectSelector": "[data-game-canvas=\"mandate\"]"
+      "name": "Admin panel renders",
+      "path": "/#/admin",
+      "expectSelector": "[data-admin-panel]"
     },
     {
-      "name": "Deepwatch how-to-play screen renders",
-      "path": "/#/how/deepwatch",
-      "expectSelector": "[data-how-to-title=\"deepwatch\"]"
+      "name": "Title runs on the LCD panel: western-bar",
+      "path": "/#/play/western-bar",
+      "expectSelector": "[data-lcd-canvas=\"western-bar\"]"
     },
     {
-      "name": "Mandate of Seasons how-to-play screen renders",
-      "path": "/#/how/mandate",
-      "expectSelector": "[data-how-to-title=\"mandate\"]"
+      "name": "Title runs on the LCD panel: battle-field",
+      "path": "/#/play/battle-field",
+      "expectSelector": "[data-lcd-canvas=\"battle-field\"]"
+    },
+    {
+      "name": "Title runs on the LCD panel: airforce-fighter",
+      "path": "/#/play/airforce-fighter",
+      "expectSelector": "[data-lcd-canvas=\"airforce-fighter\"]"
+    },
+    {
+      "name": "Title runs on the LCD panel: guerrilla-warfare",
+      "path": "/#/play/guerrilla-warfare",
+      "expectSelector": "[data-lcd-canvas=\"guerrilla-warfare\"]"
+    },
+    {
+      "name": "Title runs on the LCD panel: submarine-battle",
+      "path": "/#/play/submarine-battle",
+      "expectSelector": "[data-lcd-canvas=\"submarine-battle\"]"
+    },
+    {
+      "name": "Title runs on the LCD panel: space-attacker",
+      "path": "/#/play/space-attacker",
+      "expectSelector": "[data-lcd-canvas=\"space-attacker\"]"
+    },
+    {
+      "name": "Title runs on the LCD panel: hungry-dragon",
+      "path": "/#/play/hungry-dragon",
+      "expectSelector": "[data-lcd-canvas=\"hungry-dragon\"]"
+    },
+    {
+      "name": "Title runs on the LCD panel: sl-bankman",
+      "path": "/#/play/sl-bankman",
+      "expectSelector": "[data-lcd-canvas=\"sl-bankman\"]"
     }
   ]
 }

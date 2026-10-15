@@ -1,9 +1,9 @@
-// RetroRig's client side of the rig's own API.
+// GameWatch's client side of its own API.
 //
 // One place that knows how to talk to the server, so every screen sends the
 // iframe token the same way and reads the same shapes. Nothing here writes
-// settings, saves or the collection anywhere but the server: the rig keeps no
-// per-user state in the browser.
+// settings, saves, the skin or a snapshot anywhere but the server: the
+// handheld keeps no per-user state in the browser.
 
 // A tiny typed error so a screen can tell "you are not signed in" apart from
 // "the server said no" without parsing strings.
@@ -16,16 +16,21 @@ export class ApiError extends Error {
 }
 
 let token = '';
-// The signed-in person's own rig, once the server has told us who they are.
-// The screen shows the first part of it in the corner, like a login name.
-let who = { id: null, username: '', signedIn: false };
 
 export function setToken(value) {
   token = value || '';
 }
 
-export function identity() {
-  return who;
+// The platform's own "now", sent on every call so a preview opened at a
+// chosen moment is served as of that moment. The server reads it only in
+// staging.
+function nowHeader() {
+  try {
+    if (window.usernode && window.usernode.previewNow && typeof window.usernode.now === 'function') {
+      return window.usernode.now().toISOString();
+    }
+  } catch { /* no preview moment: the server uses its own clock */ }
+  return '';
 }
 
 // Every API call goes through here. The token rides in the same header the
@@ -34,6 +39,8 @@ export async function api(path, options) {
   const opts = Object.assign({}, options || {});
   opts.headers = Object.assign({}, opts.headers || {});
   if (token) opts.headers['x-usernode-token'] = token;
+  const now = nowHeader();
+  if (now) opts.headers['x-usernode-now'] = now;
   if (opts.body != null && !opts.headers['content-type']) {
     opts.headers['content-type'] = 'application/json';
   }
@@ -41,46 +48,57 @@ export async function api(path, options) {
   try {
     res = await fetch(path, opts);
   } catch {
-    throw new ApiError(0, 'The rig could not reach the server.');
+    throw new ApiError(0, 'GameWatch could not reach the server.');
   }
   if (res.status === 204) return null;
   let body = null;
   try { body = await res.json(); } catch { body = null; }
   if (!res.ok) {
-    throw new ApiError(res.status, (body && body.error) || 'The rig returned ' + res.status, body && body.code);
+    throw new ApiError(res.status, (body && body.error) || 'The server returned ' + res.status, body && body.code);
   }
   return body;
 }
 
-// Who is signed in, what the rig's settings are, the save slots and the
-// catalogue, in one round trip.
-export async function loadRig() {
-  const me = await api('/api/me');
-  who = { id: me.id != null ? String(me.id) : null, username: me.username || '', signedIn: !!me.username };
-  return me;
-}
-
-export function isGuest() {
-  return !who.signedIn;
+// Who is signed in and everything the handheld keeps for them, in one round
+// trip: the settings, the key mapping, the saves, the skin and the snapshots.
+export async function loadWatch() {
+  const body = await api('/api/me');
+  return {
+    id: body && body.id != null ? String(body.id) : null,
+    username: (body && body.username) || '',
+    signedIn: !!(body && body.username),
+    settings: (body && body.settings) || null,
+    bindings: (body && body.bindings) || null,
+    saves: (body && body.saves) || [],
+    skin: (body && body.skin) || null,
+    snapshots: (body && body.snapshots) || [],
+  };
 }
 
 /* ── Settings ───────────────────────────────────────────────────────────── */
 
 export async function saveSettings(settings) {
-  return api('/api/settings', { method: 'PUT', body: JSON.stringify({ settings }) });
+  const body = await api('/api/settings', { method: 'PUT', body: JSON.stringify({ settings }) });
+  return body && body.settings;
 }
 
-/* ── The catalogue ──────────────────────────────────────────────────────── */
+/* ── The key mapping ────────────────────────────────────────────────────── */
+
+export async function saveBindings(bindings) {
+  const body = await api('/api/keymap', { method: 'PUT', body: JSON.stringify({ bindings }) });
+  return (body && body.bindings) || {};
+}
+
+/* ── The Arcade's own added titles (the catalogue) ──────────────────────── */
 
 export async function listCatalogue() {
   const body = await api('/api/catalogue');
   return (body && body.entries) || [];
 }
 
-// The file never leaves the browser: the rig records its name, type and size,
-// which is all "catalogued" ever meant. `usernode.uploadFile` is offered the
-// file only when the viewer asks for a copy in platform storage, and its
-// answer is stored alongside.
+// A title's cover is an image URL in platform storage, never image bytes in
+// Postgres. The bytes go up through the bridge; only the returned URL is
+// stored.
 export async function addCatalogueEntry(entry) {
   const body = await api('/api/catalogue', { method: 'POST', body: JSON.stringify(entry) });
   return body && body.entry;
@@ -109,9 +127,93 @@ export async function deleteSlot(gameId, slot) {
   await api('/api/saves/' + encodeURIComponent(gameId) + '/' + encodeURIComponent(slot), { method: 'DELETE' });
 }
 
-/* ── The Keyboard window's joystick mapping ─────────────────────────────── */
+/* ── The OS screen: the chosen skin and the transcript ──────────────────── */
 
-export async function saveBindings(bindings) {
-  const body = await api('/api/keymap', { method: 'PUT', body: JSON.stringify({ bindings }) });
-  return (body && body.bindings) || {};
+export async function getSkin() {
+  const body = await api('/api/skin');
+  return body || null;
+}
+
+// `transcript` is the lines the OS screen then reads back, so re-provisioning
+// leaves a record of what it said it did.
+export async function saveSkin(skin, transcript) {
+  const body = await api('/api/skin', { method: 'PUT', body: JSON.stringify({ skin, transcript }) });
+  return body || null;
+}
+
+/* ── The Features screen: snapshots and their retention ─────────────────── */
+
+export async function listSnapshots() {
+  const body = await api('/api/snapshots');
+  return (body && body.snapshots) || [];
+}
+
+export async function takeSnapshot(label) {
+  const body = await api('/api/snapshots', { method: 'POST', body: JSON.stringify({ label }) });
+  return body && body.snapshot;
+}
+
+export async function deleteSnapshot(id) {
+  await api('/api/snapshots/' + encodeURIComponent(id), { method: 'DELETE' });
+}
+
+/* ── Install UFW: a fixed, simulated transcript ──────────────────────────
+ * The server streams a canned install log. Nothing is installed, no shell is
+ * run and no host is reached, so staging and production run the identical
+ * path. The caller appends each line as it arrives.
+ */
+export async function streamInstallUfw(onLine, options) {
+  const opts = Object.assign({ method: 'POST', headers: {} }, options || {});
+  if (token) opts.headers['x-usernode-token'] = token;
+  const now = nowHeader();
+  if (now) opts.headers['x-usernode-now'] = now;
+  let res;
+  try {
+    res = await fetch('/api/install-ufw', opts);
+  } catch {
+    throw new ApiError(0, 'GameWatch could not reach the server.');
+  }
+  if (!res.ok) {
+    let body = null;
+    try { body = await res.json(); } catch { body = null; }
+    throw new ApiError(res.status, (body && body.error) || 'The install did not start', body && body.code);
+  }
+  if (!res.body || typeof res.body.getReader !== 'function') {
+    // No streaming support: fall back to the whole body at once.
+    const text = await res.text();
+    for (const line of text.split('\n')) if (line) onLine(line);
+    return;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let at = buffer.indexOf('\n');
+    while (at >= 0) {
+      const line = buffer.slice(0, at);
+      buffer = buffer.slice(at + 1);
+      if (line) onLine(line);
+      at = buffer.indexOf('\n');
+    }
+  }
+  if (buffer) onLine(buffer);
+}
+
+/* ── Platform file storage, for a title's cover image ────────────────────
+ * The bridge owns file storage. When it is not there (a plain browser, or a
+ * platform without storage) the caller degrades to the drawn cover and says
+ * so; it never asks for an API key.
+ */
+export function uploadsAvailable() {
+  return !!(window.usernode && typeof window.usernode.uploadFile === 'function');
+}
+
+export async function uploadCover(file) {
+  if (!uploadsAvailable()) return null;
+  const result = await window.usernode.uploadFile(file);
+  const url = typeof result === 'string' ? result : (result && (result.url || result.href));
+  return typeof url === 'string' && /^https?:\/\//.test(url) ? url : null;
 }
