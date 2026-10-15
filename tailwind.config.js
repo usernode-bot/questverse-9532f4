@@ -55,7 +55,9 @@ module.exports = {
         danger: token('danger'),
         'on-danger': token('on-danger'),
         focus: token('focus'), // the keyboard focus ring
-        signal: token('signal'), // the terminal-style state readout
+        signal: token('signal'), // what the rig prints: boot log, readouts
+        amber: token('amber'), // caution: a key conflict, a beat-your-best
+        'on-amber': token('on-amber'), // text on amber
       },
       // The type scale: four sizes, and nothing in between.
       fontSize: {

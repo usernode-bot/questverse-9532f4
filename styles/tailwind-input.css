@@ -13,77 +13,34 @@
 @tailwind utilities;
 
 /* ── Colour tokens ────────────────────────────────────────────────────────
- * QuestVerse is drawn as its own scene: ONE fixed dark cyber-fantasy look.
- * Unlike the starter template, :root and .dark carry the SAME values, so
- * the app renders identically in Homeroom's light and dark themes. This is
- * the documented exception for a game (see "## Design" in CLAUDE.md), and
- * a later change should not "fix" it.
+ * RetroRig is drawn as its own scene: ONE fixed look, a late-1990s CRT
+ * desktop. It is the documented exception for a game (see "## Design" in
+ * CLAUDE.md). :root and .dark carry the SAME values, so the app renders
+ * identically in Homeroom's light and dark themes. Do not "fix" this by
+ * adding a light look.
  *
- * The palette: a deep indigo-black ground, lifted card surfaces, a neon
- * violet accent for actions, a signal cyan used for the terminal-style
- * state readout, and an alarm magenta reserved for danger and game over.
- * Every text pair below holds 4.5:1 or more.
+ * The palette: a near-black screen ground, a lifted phosphor-grey surface,
+ * a green CRT accent for the one action, an amber lamp for warnings, and a
+ * signal cyan used for anything the rig prints in its own voice (the boot
+ * log, the prompt's reply lines, the on-screen readouts).
  */
 @layer base {
   :root,
   .dark {
-    --ground: 8 8 16;         /* the page */
-    --surface: 17 18 32;      /* lists, cards, fields */
-    --raised: 28 30 48;       /* hovers, badges */
-    --fg: 232 234 246;        /* text */
-    --muted: 148 152 178;     /* secondary text */
-    --line: 52 55 82;         /* borders, dividers, skeletons */
-    --accent: 168 85 247;     /* neon violet: the one accent, primary action */
-    --on-accent: 20 8 40;     /* text on the accent */
-    --danger: 244 63 94;      /* alarm magenta: game over, destructive */
-    --on-danger: 30 5 16;     /* text on danger */
+    --ground: 6 8 10;         /* the CRT glass */
+    --surface: 15 20 23;      /* windows, lists, fields */
+    --raised: 26 33 37;       /* title bars, hovers, badges */
+    --fg: 226 236 232;        /* text */
+    --muted: 146 162 158;     /* secondary text */
+    --line: 52 66 66;         /* borders, dividers, skeletons */
+    --accent: 74 222 128;     /* phosphor green: the one primary action */
+    --on-accent: 4 24 12;     /* text on the accent */
+    --danger: 248 113 113;    /* alarm red: a destructive action, a game ending */
+    --on-danger: 36 6 6;      /* text on danger */
     --focus: 34 211 238;      /* signal cyan: the keyboard focus ring */
-    --signal: 34 211 238;     /* signal cyan: the terminal-style state block */
-  }
-
-  /* Seasonal themes, picked in the Creator Studio and applied to every
-   * player as html[data-theme="<id>"] (public/themes.js). Each re-tints the
-   * neutrals, the accent and the signal; the alarm magenta (danger) stays
-   * the same so game over always reads the same. Neon, the default, is the
-   * block above and has no override. html[data-theme] outranks :root and
-   * .dark, so a theme wins in both Homeroom looks. Every text pair holds
-   * 4.5:1 or more. A new theme is a block here, an entry in public/themes.js
-   * and an id in THEME_IDS in server.js. */
-  html[data-theme="halloween"] {
-    --ground: 12 8 6;
-    --surface: 26 17 12;
-    --raised: 40 27 18;
-    --fg: 245 236 228;
-    --muted: 178 160 146;
-    --line: 70 50 36;
-    --accent: 249 115 22;     /* pumpkin orange */
-    --on-accent: 28 10 0;
-    --focus: 163 230 53;
-    --signal: 163 230 53;     /* lantern lime */
-  }
-  html[data-theme="winter"] {
-    --ground: 6 12 20;
-    --surface: 14 24 38;
-    --raised: 18 29 46;
-    --fg: 230 240 250;
-    --muted: 146 166 188;
-    --line: 44 64 90;
-    --accent: 56 189 248;     /* frost blue */
-    --on-accent: 4 20 34;
-    --focus: 167 243 208;
-    --signal: 167 243 208;    /* aurora mint */
-  }
-  html[data-theme="lunar"] {
-    --ground: 16 6 8;
-    --surface: 30 12 14;
-    --raised: 46 20 22;
-    --fg: 248 236 230;
-    --muted: 186 156 150;
-    --line: 78 38 40;
-    --accent: 250 204 21;     /* lantern gold */
-    --on-accent: 32 20 0;
-    --focus: 248 113 113;
-    --signal: 248 113 113;    /* festival red */
+    --signal: 34 211 238;     /* signal cyan: what the rig prints */
+    --amber: 251 191 36;      /* amber lamp: conflict, caution, a personal best */
+    --on-amber: 34 22 0;      /* text on amber */
   }
   /* el.hidden = true hides an element even when a class gives it a display
      (flex, the components below). */
@@ -98,8 +55,9 @@
  * text-title, text-heading, text-body and text-small (tailwind.config.js).
  */
 @layer components {
-  /* Buttons: one primary per view; every card's Run/Resume is the primary
-     action of that card. At least 44 px each way, so they are easy to tap. */
+  /* Buttons: one primary per view; every window's main action is the
+     primary of that window. At least 44 px each way, so they are easy to
+     tap. */
   .btn-primary,
   .btn-secondary {
     @apply inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg px-4 text-body font-medium
@@ -119,8 +77,8 @@
       placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-focus;
   }
 
-  /* A grouped list: <ul class="list"> of <li class="list-row">. The usual
-     way to show several things; prefer it to a stack of cards. */
+  /* A grouped list: <ul class="list"> of <li class="list-row">. The usual way
+     to show several things; prefer it to a stack of cards. */
   .list {
     @apply divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface;
   }
@@ -148,144 +106,131 @@
     @apply flex flex-col items-center gap-2 px-4 py-8 text-center;
   }
 
-  /* ── QuestVerse pieces ─────────────────────────────────────────────────
+  /* ── RetroRig pieces ───────────────────────────────────────────────────
    * Built from the tokens above; nothing here invents a colour or a font. */
 
-  /* The terminal-style state readout. Monospace lines in the signal colour
-     inside a bracketed, bordered block. Mirrors each title's prompt. */
-  .state-block {
-    @apply rounded-lg border border-line bg-ground px-3 py-3 font-mono text-small leading-relaxed text-signal;
+  /* The CRT: a stack of bezel, glass and controls. The whole desktop lives
+     inside the glass. The close-up rings, the scanline layer and the
+     vignette are drawn here so no screen has to repeat them. */
+  .rig {
+    @apply flex min-h-screen flex-col gap-3 bg-ground px-3 py-3 sm:px-6 sm:py-6;
+  }
+  .rig-bezel {
+    @apply mx-auto flex w-full max-w-5xl flex-1 flex-col gap-3 rounded-3xl border border-line bg-surface p-3 sm:p-4;
+  }
+  .rig-glass {
+    @apply relative flex flex-1 flex-col gap-4 overflow-hidden rounded-2xl border border-line bg-ground p-4 sm:p-6;
+  }
+  /* Scanlines: a pure-CSS repeating gradient over the glass, scaled by the
+     viewer's Scanline setting through --rig-scanline. Purely decorative, so
+     it never takes a pointer event. */
+  .rig-scanlines {
+    @apply pointer-events-none absolute inset-0;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      rgb(0 0 0 / calc(var(--rig-scanline, 0) / 100)) 0px,
+      rgb(0 0 0 / calc(var(--rig-scanline, 0) / 100)) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+  /* The rounded-corner falloff of a real tube, in the app's own ground
+     colour so it never fights the content. */
+  .rig-vignette {
+    @apply pointer-events-none absolute inset-0;
+    background: radial-gradient(120% 100% at 50% 50%, transparent 55%, rgb(var(--ground) / 0.85) 100%);
+  }
+  /* The controls under the glass: the Start button, the running windows and
+     the clock. */
+  .rig-controls {
+    @apply flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-raised px-3 py-2;
   }
 
-  /* One A/B/C choice: a full-width secondary button holding a large letter
-     and the action text. Left-aligned, unlike the centered buttons. */
-  .choice {
-    @apply flex w-full items-start gap-3 rounded-lg border border-line bg-surface px-4 py-3 text-left
-      text-body text-fg hover:bg-raised disabled:cursor-not-allowed disabled:opacity-50
-      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2
-      focus-visible:ring-offset-ground;
-  }
-  .choice-key {
-    @apply mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent font-mono text-small font-semibold text-on-accent;
+  /* A Start-menu entry, and any full-width row inside a module window. */
+  .rig-entry {
+    @apply flex w-full items-start gap-3 rounded-lg border border-line bg-surface px-3 py-3 text-left
+      text-body text-fg hover:bg-raised focus-visible:outline-none focus-visible:ring-2
+      focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-ground;
   }
 
-  /* Tag pills on a title card and in the details panel. */
-  .tag {
-    @apply inline-flex items-center rounded-full bg-raised px-2.5 py-0.5 text-small text-muted;
+  /* A window: a title bar over a body. The rig has one window open at a
+     time, filling the glass. */
+  .rig-window {
+    @apply flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-surface;
+  }
+  .rig-window-bar {
+    @apply flex flex-wrap items-center justify-between gap-2 border-b border-line bg-raised px-3 py-2;
+  }
+  .rig-window-body {
+    @apply flex flex-1 flex-col gap-4 overflow-y-auto p-4;
   }
 
-  /* A status pill: the same word the app uses for a title's state. */
-  .status-pill {
-    @apply inline-flex items-center rounded-full border border-line px-2.5 py-0.5 text-small font-medium;
+  /* Anything the rig PRINTS in its own voice: the boot log, a prompt reply,
+     a readout line. Monospace, in the signal colour. */
+  .rig-print {
+    @apply whitespace-pre-wrap font-mono text-small leading-relaxed text-signal;
+  }
+  /* A readout block of printed lines in a bracketed border. The app's
+     signature element. */
+  .rig-readout {
+    @apply rounded-lg border border-line bg-ground px-3 py-3;
+  }
+  /* The simulated DOS prompt: the transcript, then the input line. */
+  .rig-prompt {
+    @apply flex min-h-0 flex-1 flex-col gap-2 rounded-lg border border-line bg-ground p-3;
+  }
+  .rig-prompt-log {
+    @apply flex flex-1 flex-col gap-1 overflow-y-auto font-mono text-small leading-relaxed;
+  }
+  .rig-prompt-input {
+    @apply block min-h-11 w-full rounded-lg border border-line bg-surface px-3 py-2 font-mono text-body
+      text-fg placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-focus;
   }
 
-  /* The overlay panel behind the details drawer. Sits over the arcade and
-     is dismissed by backdrop tap or Escape (the JS owns behaviour). */
-  .sheet-backdrop {
-    @apply fixed inset-0 z-40 bg-ground/80 backdrop-blur-sm;
-  }
-  .sheet-panel {
-    @apply fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col overflow-y-auto border-l border-line bg-surface p-4;
+  /* The simulation lamp. Every simulated readout on the rig carries it, so a
+     viewer never mistakes the rig's own output for real hardware. */
+  .rig-sim {
+    @apply inline-flex items-center rounded-full border border-amber px-2.5 py-0.5 text-small font-medium
+      text-amber;
   }
 
-  /* A small transient toast, used for achievement unlocks and save notes. */
+  /* A key on the virtual keyboard: fixed-width, monospace, and lit while the
+     mapped joystick direction is being pressed. */
+  .rig-key {
+    @apply inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-line bg-surface
+      px-2 font-mono text-small text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  }
+  .rig-key-lit {
+    @apply border-accent bg-raised text-accent;
+  }
+  .rig-key-conflict {
+    @apply border-amber text-amber;
+  }
+  /* A keycap row: the two rows of the alphanumeric block. */
+  .rig-keyrow {
+    @apply flex flex-wrap gap-1;
+  }
+
+  /* The screen inside the glass where a built-in game draws. The canvas
+     fills it; the rig's own readout sits under it. */
+  .rig-screen {
+    @apply relative w-full overflow-hidden rounded-lg border border-line bg-ground;
+  }
+  .rig-canvas {
+    @apply block h-auto w-full;
+  }
+
+  /* A small transient notice, used for save confirmations and conflicts. */
   .toast {
-    @apply fixed inset-x-0 bottom-4 z-50 mx-auto flex w-fit max-w-[calc(100%-2rem)] items-center gap-2 rounded-full border border-line bg-raised px-4 py-2 text-small text-fg;
+    @apply fixed inset-x-0 bottom-4 z-50 mx-auto flex w-fit max-w-[calc(100%-2rem)] items-center gap-2
+      rounded-full border border-line bg-raised px-4 py-2 text-small text-fg;
   }
 
-  /* The drifting motes behind the arcade. Pure CSS gradient dots, paused for
-     viewers who prefer reduced motion. */
-  .motes {
-    @apply pointer-events-none fixed inset-0 -z-10;
-    background-image:
-      radial-gradient(circle at 15% 25%, rgb(var(--accent) / 0.10) 0, transparent 38%),
-      radial-gradient(circle at 82% 12%, rgb(var(--signal) / 0.08) 0, transparent 42%),
-      radial-gradient(circle at 62% 78%, rgb(var(--accent) / 0.07) 0, transparent 46%);
-  }
-
-  /* Terminal-log lines inside the runner (the transcript). */
-  .log-line {
-    @apply text-body;
-  }
-
-  /* ── Creator Studio pieces ─────────────────────────────────────────────
-   * The admin surface reuses the kit above; these are the few parts it adds. */
-
-  /* The top-nav tabs, one row holding Arcade, Creator Studio and the count. */
-  .tabs {
-    @apply flex w-fit flex-wrap items-center gap-1 rounded-lg border border-line bg-surface p-1;
-  }
-  .tab {
-    @apply inline-flex min-h-11 items-center rounded-md px-3 text-small font-medium text-muted
-      hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
-  }
-  .tab-active {
-    @apply bg-raised text-fg;
-  }
-
-  /* Card and list art. The drawn SVG sits behind, and a listing's banner
-     image covers it when one is set. An image that fails to load removes
-     itself and the art shows again. */
-  .card-art {
-    @apply relative flex h-28 items-center justify-center overflow-hidden rounded-lg bg-ground px-2 py-1;
-  }
-  .card-art-img {
-    @apply absolute inset-0 h-full w-full object-cover;
-  }
-  .thumb {
-    @apply relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-line bg-ground;
-  }
-  .thumb-img {
-    @apply absolute inset-0 h-full w-full object-cover;
-  }
-  .thumb-fallback {
-    @apply flex h-full w-full items-center justify-center text-line;
-  }
-  .thumb-svg {
-    @apply h-6 w-6;
-  }
-
-  /* The Creator Studio form. Field errors appear under their field once it
-     has been touched or Save has been pressed. */
-  .form-error {
-    @apply text-small text-danger;
-  }
-  .form-notice {
-    @apply text-small text-accent;
-  }
-
-  /* A seasonal theme's two colour dots in the Creator Studio picker. The
-     colour is the theme's own token value, set inline as data. */
-  .swatch {
-    @apply block h-3.5 w-3.5 rounded-full border border-line;
-  }
-
-  /* The prelude story before a run: a full-screen layer where the text
-     rolls upward like film credits (the JS animates the crawl), with Skip
-     in a bar at the bottom. The roll fades in and out at the edges. With
-     reduced motion the text stands still and scrolls by hand. */
-  .prelude {
+  /* The how-to-play sheet: a full-screen layer over the rig. */
+  .rig-sheet {
     @apply fixed inset-0 z-50 flex flex-col bg-ground;
   }
-  .prelude-viewport {
-    @apply relative flex-1 overflow-hidden;
-    -webkit-mask-image: linear-gradient(to bottom, transparent, black 12%, black 88%, transparent);
-    mask-image: linear-gradient(to bottom, transparent, black 12%, black 88%, transparent);
-  }
-  .prelude-static {
-    @apply overflow-y-auto py-16;
-  }
-  .prelude-crawl {
-    @apply mx-auto flex max-w-xl flex-col items-center gap-6 px-6 text-center;
-    will-change: transform;
-  }
-  .prelude-bar {
-    @apply flex justify-end border-t border-line px-4 pt-3;
-    padding-bottom: max(0.75rem, var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px)));
-  }
-
-  /* The frame a listing with an external embed source opens in. */
-  .embed-frame {
-    @apply h-96 w-full rounded-lg border border-line bg-ground;
+  .rig-sheet-panel {
+    @apply mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 overflow-y-auto p-4 sm:p-6;
   }
 }

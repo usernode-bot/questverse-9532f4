@@ -1,51 +1,55 @@
-# QuestVerse
+# RetroRig
 
-> Your gateway to web3 text-based adventures and arcade games.
+> A simulated mid-1990s home computer: games, saves and a DOS-style prompt.
 
-QuestVerse is a browsable arcade of text-adventure titles that you play
-right in the app. It ships with five launch titles and a built-in runner
-that plays any of them as a web page, straight from each game's prompt.
+RetroRig boots like the machine it is pretending to be. The screen shows the
+CRT desktop, a Start menu opens five windows, and two original games run
+inside the rig on a picture the viewer's own settings control.
 
-## The five launch titles
+## The windows
 
-- **Timun Suri: Run from the Giant** (Indonesian folklore, survival)
-- **Awas Ada Pocong: Escape from Kampung Sinden** (folklore, stealth)
-- **Neon Syndicate: Breach at Sector 7** (cyberpunk, heist)
-- **Starship Salvage** (sci-fi, salvage)
-- **Uncover the Ancient Tale of Xylos** (sci-fi, exploration)
+- **Game Collection** lists the built-in titles and any files the viewer has
+  catalogued. A catalogued file is recorded by name, type and size; the rig
+  never runs it.
+- **Memory Card** holds four save slots for each built-in title. Load one to
+  carry on where a run left off.
+- **Keyboard** maps the rig's joystick to any six keys and lights a keybed.
+  The mapping is what the games read, so they can be played with keys the
+  viewer chooses.
+- **Settings** is the picture and sound: volume, gamma, brightness, scanlines,
+  aspect and frame skip, applied to every game the rig starts.
+- **Prompt** is a simulated DOS prompt. `HELP`, `DIR`, `VER`, `CLS` and
+  `RUN <title>` all work, and `RUN` starts a built-in title.
+
+## The two built-in titles
+
+- **Deepwatch: Trench Patrol** (1996) is a hydrography patrol: read sonar
+  contacts, pick your depth band, and hold the lane before the quiet budget
+  runs out.
+- **Mandate of Seasons** (1996) is eight seasons over seven provinces: build
+  granaries, dikes and trade roads, send your one officer, and keep the valley
+  loyal enough for the mandate to be renewed.
+
+Both are simulations, and the rig says so on screen. Neither has any violence,
+weaponry or betting in it.
 
 ## How it works
 
-- **The Arcade** is the home screen: a card per title with its tags, key
-  art, and a status line (Not started, In progress, Completed). One tap
-  runs or resumes a title.
-- **The Runner** plays a title. It shows the game's own state block (the
-  bracketed readout its prompt defines), the narrative scene, three A/B/C
-  choices, and a custom-action field for anything else you want to try.
-  Winning shows a Victory screen, running out of a gauge shows Game over.
-- **The Details drawer** has each title's lore, state variables, starting
-  inventory, stages, and achievements. It is also its own address.
-- **The Creator Studio** is the admin tab next to the Arcade. Publish a new
-  game, edit or remove an existing listing, and preview how a listing opens
-  (the built-in runner for `internal:<title-id>`, an embedded frame for an
-  `https` source). Everything it saves shows in the Arcade immediately.
-- **Seasonal theme** in the Creator Studio recolours QuestVerse for every
-  player to match a real-world event: Neon (the everyday look), Halloween,
-  Winter Lights or Lunar New Year. Pick one to preview it, then Apply theme.
-- **Progress, achievements, and Creator Studio listings** are saved in this
-  browser (per signed-in person when the platform provides one) and are
-  private to it.
+The app is a Node/Express server with a static frontend, and every piece of
+the viewer's own state lives in Postgres, keyed by the platform user id:
 
-The mechanics live in `public/engine.js` (a pure, deterministic engine)
-and the five title scripts in `public/catalog.js`. The Creator Studio
-overlay lives in `public/admin.js` and stores its edits in the browser, so
-a listing survives a reload and is remapped onto the static catalog. The
-only server state is the live seasonal theme (`qv_settings`, in
-`server.js`); otherwise the API is the caller's own identity.
+- `public/games.js` holds both games as pure, deterministic state machines and
+  their canvas drawing, with no DOM or storage.
+- `public/crt.js` is the picture pipeline: a 320x200 backbuffer scaled onto
+  the visible canvas with the viewer's gamma, brightness, scanlines and aspect,
+  plus the frame-skip loop.
+- `public/play.js` is the game host and the how-to-play screen; `public/app.js`
+  is the CRT desktop, the Start menu and the five windows.
+- `server.js` serves the API and the shell, verifies the platform's iframe
+  token, and owns the four tables: `rr_settings`, `rr_catalogue`, `rr_saves`
+  and `rr_keymap`.
 
 ## Running it
-
-The app is a Node/Express server with a static frontend:
 
 ```sh
 npm ci --include=dev
@@ -53,5 +57,5 @@ npm run build      # compiles styles/tailwind-input.css to public/tailwind.css
 npm start          # node server.js, on PORT (default 3000)
 ```
 
-`DATABASE_URL`, `USERNODE_JWT_PUBLIC_KEY` and `USERNODE_APP_ID` are
-injected by the platform at runtime.
+`DATABASE_URL`, `USERNODE_JWT_PUBLIC_KEY` and `USERNODE_APP_ID` are injected
+by the platform at runtime.

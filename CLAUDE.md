@@ -1,4 +1,4 @@
-# QuestVerse — notes for Claude Code
+# RetroRig — notes for Claude Code
 
 This app runs on **Homeroom**. If you're Claude Code
 editing this repo, read the platform conventions before making
@@ -58,145 +58,124 @@ this check for you and tells you when you are behind. It is silent offline, so
 its silence is not proof the checkout is current. Inside Homeroom's dev-chat
 the platform fixes the base commit, and none of this applies.
 
-## Starter template
+## Starter template (already replaced)
 
-The screen this app currently ships — the hero, the "What's already
-working" card, and the Press! example (the demo markup in
-`public/index.html`, the `/api/press` and `/api/leaderboard` routes, and
-the `presses` table bootstrap in `server.js`) — is placeholder content
-from the Homeroom starter template, not product intent.
+The Homeroom starter screen (the hero, the "What's already working" card and
+the Press! example, with its `/api/press`, `/api/leaderboard` routes and
+`presses` table) was removed when RetroRig became the app. It is gone: do not
+look for it, and do not reintroduce it.
 
-When the user asks for their first real feature, REPLACE the template
-screen rather than building alongside it:
+Two pieces of that scaffolding are NOT starter content and must stay:
 
-- remove the `usernode-starter-notice@1` block in `public/index.html`
-  (both sentinel comments and everything between them),
-- remove or repurpose the "Try the example" card, its demo endpoints and
-  the `presses` table as appropriate,
-- rewrite `README.md` to describe the actual app.
-
-Keep the `usernode-dev-console@1` forwarder `<script>` when rewriting the
-HTML — that block is platform infrastructure, not template content. So is
-the bridge `<script>`. The design kit is not placeholder either: build the
-real app with it, and fill in "## Design" below.
-
-The screen has a light and a dark look and follows the viewer's Homeroom
-theme, switching live when they change it: the theme `<script>` right after
-the bridge tag sets a `dark` class on `<html>`. Keep that script, and give
-everything you build both looks (the design kit's colour tokens carry both), unless one
-fixed look is the point of this app, like a game's own scene; then say so
-under "## Design" below. Unless a request asks for one, add
-no theme picker: the viewer's Homeroom setting is the control. "The
-platform's light/dark theme inside the app frame" in the platform
-conventions has the details.
-
-If a rule below this line conflicts with the hosted conventions, the
-hosted conventions win. This file is **app-specific** — write down
-things about *this* app that belong in the repo: product intent,
-data-model quirks, style preferences, opt-in policies (e.g. which
-tables you've marked private), etc.
+- the `usernode-dev-console@1` forwarder `<script>` in `public/index.html`
+  (platform infrastructure), and
+- the bridge `<script>` and the theme `<script>` right after it.
 
 ---
 
-## About QuestVerse
+## About RetroRig
 
-Your Gateway to Web3 Text-Based Adventures & Arcade Games.
+A simulated mid-1990s home computer, drawn on the screen as its own CRT
+desktop. The app boots, shows a Start menu, and offers five windows: the
+**Game Collection**, the **Memory Card**, the **Keyboard** mapper, the
+**Settings**, and a simulated **DOS prompt**. Two original games ship built
+in and run inside the rig: **Deepwatch: Trench Patrol** and **Mandate of
+Seasons**.
 
-QuestVerse is a browsable arcade of text-adventure titles you play in the
-app. Five launch titles ship as committed static data (`public/catalog.js`),
-played by a pure, deterministic engine (`public/engine.js`) through a
-built-in runner. A Creator Studio tab (`public/admin.js`) lets someone
-publish, edit, preview and remove listings on top of that catalog. The only
-server state is the live seasonal theme (below); progress, achievements and
-the Creator Studio's listings live in the browser (localStorage, namespaced
-per signed-in person).
+The point of the app is the machine, not only the games: the settings really
+change the picture a game is drawn with, the keyboard mapper really changes
+which keys play it, and the Memory Card really stores where a run had got to.
 
 ## Design
 
 This app's look. The first real version fills in the blanks; every later
 change follows it, and updates it when a request changes the look on purpose.
 
-- **Palette:** accent: neon violet; second: signal cyan (used for the
-  terminal-style state readout); danger: alarm magenta (game over and
-  destructive actions); neutrals: deep indigo-blacks and lilac-greys.
-- **Signature element:** the bracketed terminal state block, mirroring
-  each title's own prompt, in the signal cyan.
+- **Palette:** ground is the near-black CRT glass; surface and raised are
+  lifted greys for windows; **phosphor green** is the one accent (the Start
+  button, the primary action); **signal cyan** is what the rig PRINTS (the
+  boot log, a prompt reply, every readout); **amber** is a caution lamp (a key
+  conflict, the "simulated" pills); **alarm red** is a destructive action or a
+  game ending.
+- **Signature element:** the bracketed readout block (`.rig-readout`) of
+  monospaced cyan lines, printed under every screen the rig produces.
 - **Type scale:** `text-title`, `text-heading`, `text-body`, `text-small`
-  (change their sizes in `tailwind.config.js` if you must, not their number).
-- **One fixed look:** DARK. QuestVerse is drawn as its own scene, a game,
-  which is the documented exception to the two-look rule. `:root` and
-  `.dark` carry the same token values in `styles/tailwind-input.css`, so
-  the app renders identically in Homeroom's light and dark themes. Do not
-  "fix" this by adding a light look.
-- **Seasonal themes:** Neon (the default, the palette above), Halloween,
-  Winter Lights and Lunar New Year. Each re-tints the neutrals, the accent
-  and the signal, and keeps the alarm magenta, the single dark look and the
-  4.5:1 rule. Neon must look exactly as it did before themes existed.
+  (sizes in `tailwind.config.js`); anything the rig prints in its own voice is
+  `.rig-print`, monospace.
+- **One fixed look:** DARK. RetroRig is drawn as its own scene, a machine,
+  which is the documented exception to the two-look rule. `:root` and `.dark`
+  carry the same token values in `styles/tailwind-input.css`, so the app
+  renders identically in Homeroom's light and dark themes. Do not "fix" this
+  by adding a light look.
+- **Every simulated readout is labelled.** The Simulation lamp (`.rig-sim`)
+  says so on the desktop, in the DOS prompt and on every game's own screen.
+  This is a content rule, not decoration: a viewer must never mistake the
+  rig's output for real hardware.
 
-The kit is in `styles/tailwind-input.css`: colour tokens with a light and
-a dark value (named in `tailwind.config.js`), and a few components
-(`btn-primary`, `btn-secondary`, `field`, `list` and `list-row`,
-`card`, `section-label`, `skeleton`, `state-empty`, `state-error`).
-Re-theme by changing the token values there, keeping every text pair at
-4.5:1 or more in both looks.
+The kit is in `styles/tailwind-input.css`: colour tokens (named in
+`tailwind.config.js`), the components (`btn-primary`, `btn-secondary`,
+`field`, `list` and `list-row`, `card`, `section-label`, the load states) and
+the rig's own pieces (`.rig`, `.rig-bezel`, `.rig-glass`, `.rig-scanlines`,
+`.rig-window`, `.rig-readout`, `.rig-prompt`, `.rig-sim`, `.rig-key`,
+`.rig-sheet`).
 
-- Colour comes only from the tokens (`bg-ground`, `bg-surface`,
-  `text-fg`, `text-muted`, `border-line`, `bg-accent` with
-  `text-on-accent`, ...): never a raw hex value or a stock palette class.
-- Tap targets are at least 44 px; the buttons and fields already are.
-- Every screen that loads data has honest loading, empty and error states.
-  Never show the empty state while loading or after a failure; an error says
-  what failed, what still works, and offers Retry.
-- Seed obviously fake staging demo data so the populated screen can be seen
+- Colour comes only from the tokens, never a raw hex value or a stock palette
+  class. The one deliberate exception is inside the canvas games, which paint
+  their own phosphor palettes in `public/games.js`.
+- Tap targets are at least 44 px; the buttons, fields and keys already are.
+- A window that loads data has honest states (skeleton, empty, error with a
+  Retry).
+- Seed obviously fake staging data so the populated screens can be seen
   ("Staging mock data" in the platform conventions).
-- No cards in cards, no uppercase eyebrows, no emoji as icons.
 
 ## App-specific conventions
 
-- Titles are committed static data in `public/catalog.js`; there is no
-  database table and nothing to seed. A new title is a new entry there,
-  not a migration.
-- The Creator Studio (`public/admin.js`) stores its edits in
-  `localStorage` at `qv1:<userId>:listings` as `{ v, overrides, deleted }`.
-  Stored listings are remapped onto the static catalog by id: an override
-  wins, and removing a built-in is a tombstone (not a deletion) so it can
-  be restored. Do not add a table for listings; the browser is the store.
-- The Creator Studio is locked to the `STUDIO_USERNAMES` allowlist in
-  `server.js` (`scraido2`, plus the platform's `usernode-capture` and
-  `usernode-capture-admin` service identities, which sign the proposal
-  checks). The nav tab and the `#/admin` route are hidden for everyone else,
-  who see a "Not authorised" screen if they reach the URL, and `GET /api/me`
-  reports the `studio` flag the client reads. The decision is authorised from
-  the verified iframe token's `req.user.username`, never from a
-  client-supplied value. Add a person by editing that set.
-- Background music (`public/music.js`): the Creator Studio attaches one
-  .mp3 or .aac track to a choice, keyed `<titleId>:<stageIndex>:<choiceKey>`.
-  Picking that choice in the runner starts its track looping and replaces the
-  current one; a choice with no track leaves the music alone. Leaving the
-  runner, Restart and Play again stop it. The index lives at
-  `qv1:<userId>:music`. A track is offered to `usernode.uploadFile` first, but
-  platform storage only accepts images today, so in practice the bytes are
-  kept in this browser's IndexedDB (`questverse-music`), like the listings.
-  Playback starts inside the choice's tap handler from a URL resolved when the
-  runner opened, because phones only allow audio from a gesture.
-- A listing's `embedUrl` decides how it opens: `internal:<title-id>` runs
-  the built-in runner, an `https` URL is embedded in a sandboxed frame.
-- The engine in `public/engine.js` is pure and deterministic (no DOM, no
-  storage, no network, no randomness), so a run is reproducible. Keep it
-  that way; the runner and any future unit suite both depend on it.
-- Progress and achievements live in `localStorage`, keyed
-  `qv1:<userId>:...`. An offline load carries no token, so the store falls
-  back to a shared `anon` namespace rather than deleting real data.
-- The seasonal theme is one global setting, the row `key = 'theme'` in the
-  public `qv_settings` table, read by every client from `GET /api/me`
-  (`theme`) and written only by `PUT /api/theme`, gated by the same
-  `STUDIO_USERNAMES` allowlist. A theme is a set of token overrides under
-  `html[data-theme="<id>"]` in `styles/tailwind-input.css`; Neon sets no
-  attribute. A new theme is a block there, an entry in `public/themes.js`
-  and an id in `THEME_IDS` in `server.js`. Picking a theme in the studio
-  previews it on that screen only until Apply theme. There is no automatic,
-  date-based switching yet; if one is added, read the date through
-  `usernode.now()` / `req.now` ("Time-dependent features").
-- Content: every title is suspense, evasion and puzzles. Items are survival
-  utility used as wards and decoys, never weapons, and there is no combat,
-  gore or gambling. User-facing copy avoids em dashes.
+- **Three files, one job each.** `public/games.js` holds both games as pure,
+  deterministic state machines plus their canvas drawing, and never touches
+  the DOM (a save slot serializes its state, and a test can drive it with no
+  browser). `public/crt.js` is the picture pipeline: a 320x200 backbuffer
+  scaled onto the visible canvas with the viewer's gamma, brightness,
+  scanlines and aspect, plus the frame-skip loop. `public/play.js` is the game
+  host (canvas, input through the joystick mapping, readout, save controls)
+  and the how-to-play screen. Keep the games free of DOM and storage.
+- **The rig's data is four public tables**, keyed by the platform user id and
+  read or written only through `server.js`: `rr_settings` (the six settings),
+  `rr_catalogue` (catalogued files), `rr_saves` (one row per game and slot,
+  the run's state as JSONB) and `rr_keymap` (the joystick mapping). They hold
+  one person's own settings and file names, so they are public by default; no
+  secrets, no messages, no personal information beyond the platform username.
+  Nothing is kept in the browser.
+- **Uploads are catalogued, never executed.** A file added in the Game
+  Collection is recorded by name, type, size and the title the viewer gave it.
+  The bytes never leave the browser and the rig never runs them; the Memory
+  Card slots are the only thing the rig restores and plays. Never add a code
+  path that executes, renders or previews an uploaded file.
+- **Slots are fixed at four per game** (ids 1 to 4, clamped again on the
+  server). A save stores the game's own state object, so a snapshot that does
+  not match the current shape still loads into a playable run: both
+  `loadDeepwatch` and `loadMandate` clamp every field and fall back to a fresh
+  run.
+- **The settings are the rig's picture and sound**, not decoration. Volume
+  scales the synthesised tone, gamma and brightness filter the canvas,
+  scanlines overlay it, aspect sets the canvas height and frame skip decides
+  how often a game redraws (never how fast it runs). `describeSettings()` is
+  the single place that turns them into the printed lines, so the desktop,
+  the Settings window and the prompt's `VER` cannot drift apart.
+- **The DOS prompt is a simulation** and says so. It answers `HELP`, `DIR`,
+  `VER`, `CLS` and `RUN <title>`; `RUN` starts a built-in title and refuses a
+  catalogued file by explaining that the rig catalogues files and never runs
+  them.
+- **The two built-in titles are original to this app**, and deliberately not
+  the names, art or scenarios of any commercial game: **Deepwatch: Trench
+  Patrol** (a hydrography patrol: sonar, depth bands, a quiet budget) and
+  **Mandate of Seasons** (eight seasons over seven provinces: granaries,
+  dikes, trade roads and loyalty). Add a third by adding one entry to
+  `BUILT_IN` in `public/games.js` with its own pure state machine, drawer and
+  `howTo` blocks.
+- **Content:** both games are non-violent by construction. Conflict in
+  Deepwatch is sonar and positioning; Mandate of Seasons is harvests, works
+  and loyalty. There is no weaponry, no combat, no gore and no gambling
+  anywhere, including in the seed rows. User-facing copy avoids em dashes.
+- **The rig's clock** is only ever displayed (the Start menu's taskbar), never
+  used to decide what shows, so it reads through `usernode.now()` for
+  consistency with the platform but needs no preview moment.

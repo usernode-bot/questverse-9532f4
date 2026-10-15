@@ -1,5 +1,5 @@
 {
-  "description": "Your gateway to web3 text-based adventures and arcade games.",
+  "description": "A simulated retro PC: games, saves, and a DOS-style prompt.",
   "icon": {
     "image": "brand/icon-2.jpg"
   },
@@ -12,57 +12,68 @@
   },
   "tests": [
     {
-      "id": "arcade.default",
-      "name": "Arcade catalog renders",
+      "id": "rig.desktop",
+      "name": "Rig desktop and Start menu render",
       "path": "/#/",
-      "expectSelector": ".arcade",
+      "expectSelector": "[data-start]",
       "visual": true,
       "impact": [
         "public/**",
         "styles/**",
+        "tailwind.config.js",
         "server.js",
         "dapp.json"
       ]
     },
     {
-      "name": "Creator Studio renders for an allowed account",
-      "path": "/#/admin",
-      "expectSelector": "#admin-title"
+      "name": "Game Collection lists both built-in titles",
+      "path": "/#/collection",
+      "expectSelector": "[data-built-in] [data-title=\"deepwatch\"]"
     },
     {
-      "name": "Seasonal theme picker renders in Creator Studio",
-      "path": "/#/admin",
-      "expectSelector": "[data-theme-picker] [data-theme-option=\"halloween\"]"
+      "name": "Game Collection shows the catalogue form",
+      "path": "/#/collection",
+      "expectText": "Catalogued, not executed"
     },
     {
-      "name": "Background music uploader renders on each choice in Creator Studio",
-      "path": "/#/admin",
-      "expectSelector": "[data-music-editor] [data-trigger=\"timun-suri:0:A\"] [data-music-upload]"
+      "name": "Memory Card lists four slots for each built-in title",
+      "path": "/#/memory",
+      "expectSelector": "[data-card=\"mandate\"] [data-slot=\"mandate:4\"]"
     },
     {
-      "name": "Prelude story field renders in the Creator Studio form",
-      "path": "/#/admin",
-      "expectSelector": "#admin-prelude"
+      "name": "Keyboard shows the joystick mapping",
+      "path": "/#/keyboard",
+      "expectSelector": "[data-mapping] [data-action=\"confirm\"]"
     },
     {
-      "name": "Game preview renders",
-      "path": "/#/embed/timun-suri",
-      "expectText": "EMBED SOURCE"
+      "name": "Settings shows the picture sliders",
+      "path": "/#/settings",
+      "expectSelector": "[data-setting=\"scanline\"]"
     },
     {
-      "name": "Title details render",
-      "path": "/#/title/timun-suri",
-      "expectText": "Distance gap"
+      "name": "Prompt answers VER with the rig version",
+      "path": "/#/prompt",
+      "expectText": "RetroRig DOS shell, simulated"
     },
     {
-      "name": "Runner starts a title",
-      "path": "/#/play/timun-suri",
-      "expectText": "DISTANCE GAP: MODERATE"
+      "name": "Deepwatch runs on the rig",
+      "path": "/#/play/deepwatch",
+      "expectSelector": "[data-game-canvas=\"deepwatch\"]"
     },
     {
-      "name": "Runner mid-run demo state",
-      "path": "/#/play/neon-syndicate?demo=1",
-      "expectText": "NEURAL INTEGRITY"
+      "name": "Mandate of Seasons runs on the rig",
+      "path": "/#/play/mandate",
+      "expectSelector": "[data-game-canvas=\"mandate\"]"
+    },
+    {
+      "name": "Deepwatch how-to-play screen renders",
+      "path": "/#/how/deepwatch",
+      "expectSelector": "[data-how-to-title=\"deepwatch\"]"
+    },
+    {
+      "name": "Mandate of Seasons how-to-play screen renders",
+      "path": "/#/how/mandate",
+      "expectSelector": "[data-how-to-title=\"mandate\"]"
     }
   ]
 }
