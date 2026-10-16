@@ -90,6 +90,7 @@ export function renderAiMeter(usage) {
   const u = usage || { state: 'unavailable', text: MESSAGES.unavailable, pct: 0 };
   const node = el('div', {
     class: 'st-meter' + (u.warn ? ' st-meter-warn' : ''), 'data-ai-meter': '', 'data-ai-state': u.state,
+    'data-ai-limited': u.limited ? 'true' : null,
     role: 'status', 'aria-live': 'polite', title: MESSAGES.manage,
   });
   if (u.state === 'reading') {

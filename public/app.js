@@ -316,6 +316,12 @@ async function sendChat() {
   if (!text || studio.chat.busy) return;
   if (!studio.signedIn) { studio.chat.note = MESSAGES.guest; render(); return; }
   if (studio.usage && studio.usage.state === 'unavailable') return;
+  // The app's own limit already tripped: print the line and send nothing.
+  if (studio.usage && studio.usage.limited) {
+    studio.chat.note = MESSAGES.appLimit;
+    render();
+    return;
+  }
   studio.chat.busy = true;
   studio.chat.note = '';
   render();
@@ -338,10 +344,10 @@ async function sendChat() {
     // The message stays in the prompt bar; the widget prints the platform's
     // own state in the app's words and never retries a cap on its own.
     studio.chat.note = result.text || MESSAGES.failed;
-    if (result.state === 'app_cap' || result.state === 'budget') {
+    if (result.state === 'app_cap' || result.state === 'budget' || result.state === 'app_limit') {
       await refreshUsage();
       if (studio.usage && studio.usage.state === 'reading' && studio.usage.cap > 0) {
-        studio.usage = Object.assign({}, studio.usage, { pct: 100, warn: true });
+        studio.usage = Object.assign({}, studio.usage, { pct: 100, warn: true, limited: true });
       }
     } else if (result.state === 'declined') {
       await refreshUsage();
