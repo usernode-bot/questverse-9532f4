@@ -165,12 +165,17 @@ the pieces kept from the handheld (`.rig-window`, `.rig-readout`,
   answers `503 assistant_unavailable` without calling anything and the widget
   and the meter print **AI assistant unavailable in this environment**.
   Nothing is keyed on `IS_STAGING`. The system prompt (`ASSISTANT_SYSTEM`)
-  tells the model to decline sexual, violent, weapon, gambling and loot-box
-  topics with one neutral sentence, and the widget's copy says so.
+  tells the model to decline sexual or explicit content including nudity,
+  anything depicting children or minors, and violent, weapon, gambling and
+  loot-box topics with one neutral sentence, and the widget's copy says so.
 - **Grant, caps and the meter.** On the proxy's `403 grant_required` the
   client calls `usernode.requestLlmAccess()` and retries the same message
   once if granted; on `429 app_cap_exceeded` and `429 budget_exceeded` it
-  prints the platform's own words and never retries. The top bar's meter
+  prints the platform's own words and never retries. The assistant also stops
+  at `SPEND_SHARE` (25%) of the platform's reported daily cap for this app,
+  enforced server side (`app_limit_reached`, no proxy call and no stored row)
+  and client side (`usage.limited`, Send prints the line and posts nothing),
+  and the meter prints the limit next to the platform's own figures. The top bar's meter
   reads `usernode.getLlmUsage()` first and the proxy's
   `x-usernode-llm-spent-cents` / `x-usernode-llm-cap-cents` headers after
   every reply; the app keeps no token-price table. **Manage AI permissions in

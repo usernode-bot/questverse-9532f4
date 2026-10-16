@@ -161,7 +161,7 @@ app.get('/favicon.ico', (_req, res) => res.status(204).end());
  */
 
 const crypto = require('crypto');
-const { callProxy } = require('./lib/llm-proxy');
+const { callProxy, overLimit } = require('./lib/llm-proxy');
 
 /* ── The platform's text AI ───────────────────────────────────────────────
  * The one real generation. Production containers carry the proxy's URL and
@@ -179,8 +179,10 @@ const ASSISTANT_SYSTEM = [
   'You answer questions about the project and draft titles, captions, scripts, descriptions and shot lists.',
   'You cannot generate images, video or audio. If asked, say so plainly and point at the studio\'s',
   'labelled placeholders, which are simulations.',
-  'Decline anything sexual or suggestive, anything violent or about weapons, and anything about',
-  'gambling, betting or loot boxes. Answer such a request with one short neutral sentence and nothing more.',
+  'Decline anything sexual, suggestive, nude or explicit, at any level of detail. Decline any depiction',
+  'of children, minors or kids\' activities, including captions or scripts about them. Decline anything',
+  'violent or about weapons, and anything about gambling, betting or loot boxes. Answer such a request',
+  'with one short neutral sentence and nothing more.',
   'Keep replies short and practical. Write plain prose without em dashes.',
 ].join(' ');
 
@@ -381,6 +383,26 @@ async function lastMeter(ownerId) {
   const { rows } = await pool.query(
     `SELECT spent_cents, cap_cents FROM rr_assistant
       WHERE owner_id = $1 AND role = 'assistant' AND spent_cents IS NOT NULL
+      ORDER BY created_at DESC LIMIT 1`,
+    [ownerId],
+  );
+  const row = rows[0];
+  return {
+    lastSpentCents: row ? Number(row.spent_cents) : null,
+    lastCapCents: row && row.cap_cents != null ? Number(row.cap_cents) : null,
+  };
+}
+
+// Today's meter reading, for the app's own spend limit. Unlike lastMeter it
+// only reads rows from the current UTC day, so a reading from an earlier day
+// never trips the limit; the platform resets its cap at midnight UTC.
+async function todayMeter(ownerId) {
+  if (!ownerId) return { lastSpentCents: null, lastCapCents: null };
+  const { rows } = await pool.query(
+    `SELECT spent_cents, cap_cents FROM rr_assistant
+      WHERE owner_id = $1 AND role = 'assistant' AND spent_cents IS NOT NULL
+        AND cap_cents IS NOT NULL
+        AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
       ORDER BY created_at DESC LIMIT 1`,
     [ownerId],
   );
@@ -683,6 +705,22 @@ app.post('/api/assistant', async (req, res) => {
   if (!message) return res.status(400).json({ error: 'Type a message first.' });
   if (!LLM_ENABLED || !LLM_URL) {
     return res.status(503).json({ error: 'AI assistant unavailable in this environment', code: 'assistant_unavailable' });
+  }
+  // The app's own hard limit: a quarter of the platform's reported daily cap
+  // for this app. Once reached, nothing is sent to the proxy and no turn is
+  // stored for the rest of the UTC day. A failed read falls through: the
+  // platform's own cap still applies.
+  let today;
+  try {
+    today = await todayMeter(owner);
+  } catch (err) {
+    console.warn('assistant limit read failed: ' + err.message);
+    today = null;
+  }
+  if (today && overLimit(today.lastSpentCents, today.lastCapCents)) {
+    if (today.lastSpentCents != null) res.set('x-usernode-llm-spent-cents', String(today.lastSpentCents));
+    if (today.lastCapCents != null) res.set('x-usernode-llm-cap-cents', String(today.lastCapCents));
+    return res.status(429).json({ error: 'App AI limit reached', code: 'app_limit_reached' });
   }
   const history = Array.isArray(body.history)
     ? body.history

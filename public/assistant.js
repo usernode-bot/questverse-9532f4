@@ -11,7 +11,7 @@
 export const MESSAGES = {
   sends: 'Sends your message to the platform\'s text AI. Charged to your own daily AI budget.',
   manage: 'Manage AI permissions in the platform\'s Settings.',
-  declines: 'The assistant declines sexual, violent, weapon and gambling topics.',
+  declines: 'The assistant declines sexual or explicit content, anything showing children, and violent, weapon and gambling topics.',
   unavailable: 'AI assistant unavailable in this environment.',
   unavailableDetail: 'In the published app the assistant answers with the platform\'s own text AI, '
     + 'charged to your own daily AI budget.',
@@ -22,7 +22,14 @@ export const MESSAGES = {
   guest: 'Sign in to Homeroom to send a message. A guest can read the transcript.',
   failed: 'The assistant did not answer. Nothing was charged. Try again in a moment.',
   meterLabel: 'AI today',
+  limitLabel: 'limit',
+  appLimit: 'This app\'s AI limit is reached: a quarter of your daily AI cap for this app. It resets at midnight UTC.',
 };
+
+// The share of the platform's reported daily cap the app stops at. The
+// server mirrors it (SPEND_SHARE in lib/llm-proxy.js); a test asserts the
+// two stay equal.
+export const LIMIT_SHARE = 0.25;
 
 // A cents figure, possibly fractional, printed as dollars. The one place.
 export function formatCents(cents) {
@@ -52,14 +59,18 @@ export function usageState(enabled, grant, last) {
 function reading(spent, cap) {
   const s = Math.max(0, Number(spent) || 0);
   const c = Math.max(0, Number(cap) || 0);
-  const pct = c > 0 ? Math.min(100, (s / c) * 100) : 0;
+  const limit = c * LIMIT_SHARE;
+  const pct = limit > 0 ? Math.min(100, (s / limit) * 100) : 0;
   return {
     state: 'reading',
-    text: MESSAGES.meterLabel + ' ' + formatCents(s) + ' of ' + formatCents(c),
+    text: MESSAGES.meterLabel + ' ' + formatCents(s) + ' of ' + formatCents(c)
+      + ', ' + MESSAGES.limitLabel + ' ' + formatCents(limit),
     spent: s,
     cap: c,
+    limit,
     pct,
-    warn: c > 0 && pct >= 90,
+    warn: limit > 0 && pct >= 90,
+    limited: limit > 0 && s >= limit,
   };
 }
 
@@ -84,6 +95,7 @@ export function classify(status, code) {
   if (status === 401) return { state: 'guest', text: MESSAGES.guest };
   if (status === 403 && code === 'grant_required') return { state: 'grant_required' };
   if (status === 429 && code === 'app_cap_exceeded') return { state: 'app_cap', text: MESSAGES.appCap };
+  if (status === 429 && code === 'app_limit_reached') return { state: 'app_limit', text: MESSAGES.appLimit };
   if (status === 429 && code === 'budget_exceeded') return { state: 'budget', text: MESSAGES.budget };
   if (status === 503 && code === 'assistant_unavailable') {
     return { state: 'unavailable', text: MESSAGES.unavailable };

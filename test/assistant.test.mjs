@@ -6,13 +6,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import {
-  classify, sendMessage, usageState, formatCents, historyFor, MESSAGES,
+  classify, sendMessage, usageState, formatCents, historyFor, MESSAGES, LIMIT_SHARE,
 } from '../public/assistant.js';
 import { formatTimecode, timecodePair, withTrim, trackModel, nextSlot } from '../public/timeline.js';
 import { describeRequest, describeExport, SIM_LINE } from '../public/generate.js';
+import { readFileSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
-const { buildProxyRequest, parseMeterHeaders, callProxy, replyText } = require('../lib/llm-proxy.js');
+const { buildProxyRequest, parseMeterHeaders, callProxy, replyText, overLimit, SPEND_SHARE } = require('../lib/llm-proxy.js');
 
 function refusal(status, code) {
   const err = new Error('refused');
@@ -70,18 +71,72 @@ test('503 assistant_unavailable is the unavailable state', async () => {
   assert.equal(out.text, 'AI assistant unavailable in this environment.');
 });
 
-test('the meter reads the three states', () => {
+test('the meter reads the three states and prints the limit', () => {
   assert.equal(usageState(false, { granted: true, spentCentsToday: 5, dailyCapCents: 100 }, null).state, 'unavailable');
   const r = usageState(true, { granted: true, spentCentsToday: 4.7914, dailyCapCents: 100 }, null);
   assert.equal(r.state, 'reading');
-  assert.equal(r.text, 'AI today $0.05 of $1.00');
+  assert.equal(r.text, 'AI today $0.05 of $1.00, limit $0.25');
+  assert.equal(r.limit, 25);
   assert.equal(r.warn, false);
+  assert.equal(r.limited, false);
   assert.equal(usageState(true, { granted: false }, null).text, 'AI permission not granted');
-  const fallback = usageState(true, null, { spentCents: 95, capCents: 100 });
-  assert.equal(fallback.state, 'reading');
-  assert.equal(fallback.warn, true);
+  const near = usageState(true, null, { spentCents: 23, capCents: 100 });
+  assert.equal(near.state, 'reading');
+  assert.equal(near.warn, true);
+  assert.equal(near.limited, false);
+  const at = usageState(true, null, { spentCents: 25, capCents: 100 });
+  assert.equal(at.limited, true);
+  assert.equal(at.pct, 100);
+  assert.equal(at.warn, true);
+  const zero = usageState(true, { granted: true, spentCentsToday: 5, dailyCapCents: 0 }, null);
+  assert.equal(zero.limited, false);
+  assert.equal(zero.pct, 0);
   assert.equal(usageState(true, null, null).state, 'unavailable');
   assert.equal(formatCents('x'), '$0.00');
+});
+
+test('overLimit is a quarter of the cap, never tripped by a zero or missing reading', () => {
+  assert.equal(overLimit(24.99, 100), false);
+  assert.equal(overLimit(25, 100), true);
+  assert.equal(overLimit(5, 0), false);
+  assert.equal(overLimit(5, null), false);
+  assert.equal(overLimit(null, 100), false);
+});
+
+test('server and client share the same spend share', () => {
+  assert.equal(SPEND_SHARE, 0.25);
+  assert.equal(LIMIT_SHARE, 0.25);
+  assert.equal(SPEND_SHARE, LIMIT_SHARE);
+});
+
+test('classify names the app limit in the app\'s own words', () => {
+  assert.deepEqual(classify(429, 'app_limit_reached'), { state: 'app_limit', text: MESSAGES.appLimit });
+});
+
+test('the app limit is answered like a cap and never retried', async () => {
+  let calls = 0;
+  const out = await sendMessage('Hi', [], {
+    post: async () => { calls += 1; throw refusal(429, 'app_limit_reached'); },
+  });
+  assert.equal(calls, 1);
+  assert.equal(out.state, 'app_limit');
+  assert.equal(out.text, MESSAGES.appLimit);
+});
+
+test('the system prompt names the wider refusals', () => {
+  const src = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  const start = src.indexOf('const ASSISTANT_SYSTEM');
+  assert.ok(start > -1, 'ASSISTANT_SYSTEM not found');
+  const block = src.slice(start, src.indexOf('].join', start));
+  for (const word of ['children', 'minors', 'explicit', 'nude', 'violent', 'weapons', 'gambling']) {
+    assert.ok(block.includes(word), 'ASSISTANT_SYSTEM should name ' + word);
+  }
+});
+
+test('the new copy carries no em dash', () => {
+  for (const line of [MESSAGES.appLimit, MESSAGES.declines]) {
+    assert.ok(!line.includes('—'), 'copy should not contain an em dash: ' + line);
+  }
 });
 
 test('history keeps the last ten turns in the proxy shape', () => {
