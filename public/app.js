@@ -1,4 +1,4 @@
-// Homeroom Studio client app.
+// Pixmotion AI client app.
 //
 // One HTML shell, these screens off the URL hash:
 //   #/studio                  the editor (also the default route)

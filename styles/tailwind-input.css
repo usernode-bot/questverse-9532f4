@@ -13,7 +13,7 @@
 @tailwind utilities;
 
 /* ── Colour tokens ────────────────────────────────────────────────────────
- * Homeroom Studio is drawn as its own console: ONE fixed dark look. It is
+ * Pixmotion AI is drawn as its own console: ONE fixed dark look. It is
  * the documented exception for an app that draws its own scene (see
  * "## Design" in CLAUDE.md). :root and .dark carry the SAME values, so the
  * app renders identically in Homeroom's light and dark themes. Do not "fix"

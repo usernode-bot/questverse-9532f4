@@ -1,4 +1,4 @@
-// Homeroom Studio's client side of its own API.
+// Pixmotion AI's client side of its own API.
 //
 // One place that knows how to talk to the server, so every screen sends the
 // iframe token the same way and reads the same shapes. Nothing here writes

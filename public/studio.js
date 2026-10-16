@@ -13,7 +13,7 @@ import {
 } from './generate.js';
 import { MESSAGES } from './assistant.js';
 
-export const APP_NAME = 'Homeroom Studio';
+export const APP_NAME = 'Pixmotion AI';
 
 export const TABS = [
   { id: 'video', label: 'Video' },

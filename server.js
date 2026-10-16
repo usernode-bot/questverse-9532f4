@@ -147,7 +147,7 @@ app.get('/health', (_req, res) => {
 // /favicon.ico doesn't fall through to the auth-gated catch-all.
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 
-/* ── Homeroom Studio's data ─────────────────────────────────────────────────
+/* ── Pixmotion AI's data ─────────────────────────────────────────────────
  * One person's own project, its media, its tracks, its clips and its
  * assistant transcript, keyed by the platform user id from the verified
  * token. Nothing is kept in the browser.
@@ -175,7 +175,7 @@ const LLM_URL = (process.env.USERNODE_LLM_PROXY_URL || '').replace(/\/+$/, '');
 const ASSISTANT_MODEL = 'claude-sonnet-5-5';
 const ASSISTANT_MAX_TOKENS = 600;
 const ASSISTANT_SYSTEM = [
-  'You are the Homeroom Studio assistant for one media project in a dark video editing suite.',
+  'You are the Pixmotion AI assistant for one media project in a dark video editing suite.',
   'You answer questions about the project and draft titles, captions, scripts, descriptions and shot lists.',
   'You cannot generate images, video or audio. If asked, say so plainly and point at the studio\'s',
   'labelled placeholders, which are simulations.',

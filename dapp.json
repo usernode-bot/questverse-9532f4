@@ -1,5 +1,6 @@
 {
-  "description": "Homeroom Studio: a dark AI media editor with a project library, a preview player, an inspector, a multi-track timeline and an assistant. Image, video and export generation are simulated and say so; the assistant answers through the platform's own text AI under your grant.",
+  "name": "Pixmotion AI",
+  "description": "Pixmotion AI: a dark AI media editor with a project library, a preview player, an inspector, a multi-track timeline and an assistant. Image, video and export generation are simulated and say so; the assistant answers through the platform's own text AI under your grant.",
   "icon": {
     "image": "brand/icon-2.jpg"
   },
@@ -33,7 +34,8 @@
     {
       "name": "The top bar renders with its breadcrumb",
       "path": "/#/studio",
-      "expectSelector": "[data-topbar] [data-crumbs]"
+      "expectSelector": "[data-topbar] [data-crumbs]",
+      "expectText": "Pixmotion AI"
     },
     {
       "name": "The top bar carries the Export button",

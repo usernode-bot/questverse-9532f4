@@ -1,4 +1,4 @@
-# Homeroom Studio: notes for Claude Code
+# Pixmotion AI: notes for Claude Code
 
 This app runs on **Homeroom**. If you're Claude Code
 editing this repo, read the platform conventions before making
@@ -63,7 +63,7 @@ state.
 
 ---
 
-## About Homeroom Studio
+## About Pixmotion AI
 
 A dark **AI media editor**, laid out like a professional video editor: a
 top bar (Back, a breadcrumb, Undo and Redo, the tool row, the collaborator

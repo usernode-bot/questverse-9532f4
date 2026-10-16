@@ -1,8 +1,8 @@
-# Homeroom Studio
+# Pixmotion AI
 
 > A dark AI media editor: one project, built from clips, text, transitions and audio, with an inspector, a multi-track timeline and an assistant.
 
-Homeroom Studio is laid out like a professional video editor. A top bar
+Pixmotion AI is laid out like a professional video editor. A top bar
 carries the breadcrumb, Undo and Redo, the tool row, the collaborator
 avatars, the AI usage meter and Export. The Project media library sits on
 the left, the Preview player with its scrub bar and `01:38/01:40` timecode
