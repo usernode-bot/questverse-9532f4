@@ -1,9 +1,13 @@
 {
-  "description": "A simulated LCD handheld GameWatch: a catalog of original arcade titles with an auto-sliding hero banner, a manager that edits every title, a Memory Card and a dashboard of simulated modules.",
+  "description": "Homeroom Studio: a dark AI media editor with a project library, a preview player, an inspector, a multi-track timeline and an assistant. Image, video and export generation are simulated and say so; the assistant answers through the platform's own text AI under your grant.",
   "icon": {
     "image": "brand/icon-2.jpg"
   },
   "secrets": [],
+  "llm": {
+    "purpose": "Answers your questions about the project and drafts text for it",
+    "suggested_daily_cap_cents": 50
+  },
   "governance": {
     "approvers": "invited",
     "approvals": {
@@ -12,214 +16,159 @@
   },
   "tests": [
     {
-      "id": "gw.arcade",
-      "name": "Arcade: the hero banner, the category pills and the catalog rows",
-      "path": "/#/",
-      "expectSelector": "[data-gallery]",
+      "id": "studio.editor",
+      "name": "Studio: the top bar, the library, the preview, the inspector and the timeline",
+      "path": "/#/studio",
+      "expectSelector": "[data-studio]",
       "visual": true,
       "impact": [
         "public/**",
         "styles/**",
         "tailwind.config.js",
         "server.js",
+        "lib/**",
         "dapp.json"
       ]
     },
     {
-      "name": "Arcade renders the hero banner",
-      "path": "/#/",
-      "expectSelector": "[data-hero]"
+      "name": "The top bar renders with its breadcrumb",
+      "path": "/#/studio",
+      "expectSelector": "[data-topbar] [data-crumbs]"
     },
     {
-      "name": "The hero banner names a title",
-      "path": "/#/",
-      "expectSelector": "[data-hero-title]"
+      "name": "The top bar carries the Export button",
+      "path": "/#/studio",
+      "expectSelector": "[data-topbar] [data-export]"
     },
     {
-      "name": "The hero badge reads PLATFORM: GAMEWATCH",
-      "path": "/#/",
-      "expectSelector": "[data-hero-badge]",
-      "expectText": "PLATFORM: GAMEWATCH"
+      "name": "The AI meter says the environment has no AI",
+      "path": "/#/studio",
+      "expectSelector": "[data-ai-meter][data-ai-state=\"unavailable\"]",
+      "expectText": "unavailable in this environment"
     },
     {
-      "name": "The hero banner can be edited",
-      "path": "/#/",
-      "expectSelector": "[data-hero-edit]"
+      "name": "The Manage AI permissions note points at the platform's Settings",
+      "path": "/#/studio/assistant",
+      "expectSelector": "[data-ai-permissions-note]",
+      "expectText": "Manage AI permissions"
     },
     {
-      "name": "Arcade offers a category pill",
-      "path": "/#/",
-      "expectSelector": "[data-catalog-pill=\"Simulation\"]"
+      "name": "The media library lists the seeded demo clip",
+      "path": "/#/studio/library",
+      "expectSelector": "[data-library] [data-media-row=\"staging-demo-clip-text\"] [data-media-badge]"
     },
     {
-      "name": "The category pill narrows the catalogue",
-      "path": "/#/?pill=Simulation",
-      "expectSelector": "[data-gallery][data-filter=\"Simulation\"]"
+      "name": "The media library labels its rows as simulated",
+      "path": "/#/studio/library",
+      "expectSelector": "[data-library] [data-simulated=\"true\"]"
     },
     {
-      "name": "A filtered catalogue shows a simulation row",
-      "path": "/#/?pill=Simulation",
-      "expectSelector": "[data-cat-row=\"airforce-fighter\"]"
+      "name": "The search narrows the library to one row",
+      "path": "/#/studio/library?q=audio",
+      "expectSelector": "[data-library][data-query=\"audio\"][data-count=\"1\"] [data-media-row=\"staging-demo-clip-audio\"]"
     },
     {
-      "name": "Arcade shows the seeded western-bar catalog row",
-      "path": "/#/",
-      "expectSelector": "[data-cat-row=\"western-bar\"]"
+      "name": "The empty search result says so",
+      "path": "/#/studio/library?q=nothing-matches-this",
+      "expectSelector": "[data-library][data-count=\"0\"] [data-library-empty]"
     },
     {
-      "name": "The catalog row shows the handheld thumbnail",
-      "path": "/#/",
-      "expectSelector": "[data-cat-thumb=\"western-bar\"]"
+      "name": "The preview player shows the scrub bar and the Play button",
+      "path": "/#/studio/clips/staging-demo-clip-text",
+      "expectSelector": "[data-stage] [data-play]"
     },
     {
-      "name": "The catalog row names the platform",
-      "path": "/#/",
-      "expectSelector": "[data-cat-row=\"western-bar\"] [data-cat-platform=\"western-bar\"]"
+      "name": "The preview player has a scrub bar",
+      "path": "/#/studio/clips/staging-demo-clip-text",
+      "expectSelector": "[data-stage] [data-scrub]"
     },
     {
-      "name": "The seeded titles reach the Arcade",
-      "path": "/#/",
-      "expectSelector": "[data-cat-row=\"sl-bankman\"]"
+      "name": "The timecode reads the project's own length",
+      "path": "/#/studio/clips/staging-demo-clip-text",
+      "expectSelector": "[data-stage] [data-timecode]",
+      "expectText": "/01:40"
     },
     {
-      "name": "Arcade has an add-game footer",
-      "path": "/#/",
-      "expectSelector": "[data-add-game-foot]"
+      "name": "The inspector's Video tab shows its six controls",
+      "path": "/#/studio/inspector/video",
+      "expectSelector": "[data-inspector] [data-inspector-panel=\"video\"] [data-control=\"volume\"] ~ [data-control=\"camera-preset\"] ~ [data-control=\"motion-realism\"] ~ [data-control=\"resolution\"] ~ [data-control=\"aspect\"] ~ [data-control=\"duration\"]"
     },
     {
-      "name": "Arcade header carries the module menu button",
-      "path": "/#/",
-      "expectSelector": "[data-header-menu]"
+      "name": "The inspector offers the Audio & FX tab",
+      "path": "/#/studio/inspector/video",
+      "expectSelector": "[data-inspector] [data-inspector-tab=\"audio\"]"
     },
     {
-      "name": "The manager renders every title",
-      "path": "/#/manage",
-      "expectSelector": "[data-manage-panel]"
+      "name": "The inspector's Animation tab shows the motion preset",
+      "path": "/#/studio/inspector/animation",
+      "expectSelector": "[data-inspector-panel=\"animation\"] [data-control=\"motion-preset\"]"
     },
     {
-      "name": "The manager lists the seeded built-in titles",
-      "path": "/#/manage",
-      "expectSelector": "[data-manage-title-row=\"western-bar\"]"
+      "name": "The timeline draws its ruler and four lanes",
+      "path": "/#/studio/timeline",
+      "expectSelector": "[data-timeline] [data-lane=\"text\"] ~ [data-lane=\"clip\"] ~ [data-lane=\"transition\"] ~ [data-lane=\"audio\"]"
     },
     {
-      "name": "The manager has an editor for each title",
-      "path": "/#/manage",
-      "expectSelector": "[data-manage-edit=\"western-bar\"]"
+      "name": "The timeline shows the seeded selected clip with its trim handle",
+      "path": "/#/studio/timeline",
+      "expectSelector": "[data-lane=\"clip\"] [data-clip=\"staging-demo-clip-a\"] [data-trim]"
     },
     {
-      "name": "The manager opens the banner editor",
-      "path": "/#/manage/banner",
-      "expectSelector": "[data-manage-slide=\"0\"]"
+      "name": "The timeline draws its ruler",
+      "path": "/#/studio/timeline",
+      "expectSelector": "[data-timeline] [data-ruler]"
     },
     {
-      "name": "Hungry Dragon how to play screen renders",
-      "path": "/#/how/hungry-dragon",
-      "expectSelector": "[data-how-to-title=\"hungry-dragon\"]"
+      "name": "The timeline carries the playhead",
+      "path": "/#/studio/timeline",
+      "expectSelector": "[data-timeline] [data-playhead]"
     },
     {
-      "name": "Terminal says it is simulated",
+      "name": "The assistant widget shows the four quick actions and the prompt bar",
+      "path": "/#/studio/assistant",
+      "expectSelector": "[data-assistant] [data-quick=\"text\"][data-real=\"true\"] ~ [data-quick=\"images\"][data-simulated=\"true\"] ~ [data-quick=\"avatar\"][data-simulated=\"true\"] ~ [data-quick=\"video\"][data-simulated=\"true\"]"
+    },
+    {
+      "name": "The assistant widget has a prompt bar",
+      "path": "/#/studio/assistant",
+      "expectSelector": "[data-assistant] [data-assistant-prompt]"
+    },
+    {
+      "name": "The assistant says the environment has no AI and disables its prompt",
+      "path": "/#/studio/assistant",
+      "expectSelector": "[data-assistant] [data-assistant-note][data-ai-state=\"unavailable\"]",
+      "expectText": "unavailable in this environment"
+    },
+    {
+      "name": "The assistant's prompt bar is disabled where there is no AI",
+      "path": "/#/studio/assistant",
+      "expectSelector": "[data-assistant] [data-assistant-prompt][disabled]"
+    },
+    {
+      "name": "The simulated video generation panel opens from its route",
+      "path": "/#/studio/generate/video",
+      "expectSelector": "[data-generate-panel][data-generate-panel-kind=\"video\"] [data-placeholder-add]"
+    },
+    {
+      "name": "The generation panel is labelled simulated",
+      "path": "/#/studio/generate/video",
+      "expectSelector": "[data-generate-panel][data-generate-panel-kind=\"video\"] [data-simulated=\"true\"]"
+    },
+    {
+      "name": "The generation panel reads its kind from the route",
+      "path": "/#/studio/generate/images",
+      "expectSelector": "[data-generate-panel][data-generate-panel-kind=\"images\"] [data-simulated=\"true\"]"
+    },
+    {
+      "name": "The export panel is a simulation and says no file was written",
+      "path": "/#/studio/export",
+      "expectSelector": "[data-export-panel] [data-simulated=\"true\"]",
+      "expectText": "No file was written"
+    },
+    {
+      "name": "A retired handheld address lands on the studio's not-here state",
       "path": "/#/terminal",
-      "expectText": "simulated"
-    },
-    {
-      "name": "Terminal help lists ufw",
-      "path": "/#/terminal",
-      "expectText": "print the simulated firewall install transcript"
-    },
-    {
-      "name": "FTP shows the read-only file tree",
-      "path": "/#/ftp",
-      "expectSelector": "[data-ftp-tree]"
-    },
-    {
-      "name": "FTP tree lists the games directory",
-      "path": "/#/ftp",
-      "expectText": "/ games"
-    },
-    {
-      "name": "OS lists the panel skins",
-      "path": "/#/os",
-      "expectSelector": "[data-os-skins]"
-    },
-    {
-      "name": "OS says it is simulated",
-      "path": "/#/os",
-      "expectText": "Simulated OS"
-    },
-    {
-      "name": "Features states the two-month retention",
-      "path": "/#/features",
-      "expectText": "two months"
-    },
-    {
-      "name": "Features offers the Install UFW action",
-      "path": "/#/features",
-      "expectSelector": "[data-install-ufw-run]"
-    },
-    {
-      "name": "Settings shows the curvature slider",
-      "path": "/#/settings",
-      "expectSelector": "[data-setting=\"curvature\"]"
-    },
-    {
-      "name": "Settings still shows the scanline slider",
-      "path": "/#/settings",
-      "expectSelector": "[data-setting=\"scanline\"]"
-    },
-    {
-      "name": "Settings shows the handheld key mapping",
-      "path": "/#/settings",
-      "expectSelector": "[data-mapping] [data-action=\"game_a\"]"
-    },
-    {
-      "name": "Key mapping binds all nine handheld keys",
-      "path": "/#/settings",
-      "expectSelector": "[data-mapping] [data-action=\"reset\"]"
-    },
-    {
-      "name": "Admin panel renders",
-      "path": "/#/admin",
-      "expectSelector": "[data-admin-panel]"
-    },
-    {
-      "name": "Title runs on the LCD panel: western-bar",
-      "path": "/#/play/western-bar",
-      "expectSelector": "[data-lcd-canvas=\"western-bar\"]"
-    },
-    {
-      "name": "Title runs on the LCD panel: battle-field",
-      "path": "/#/play/battle-field",
-      "expectSelector": "[data-lcd-canvas=\"battle-field\"]"
-    },
-    {
-      "name": "Title runs on the LCD panel: airforce-fighter",
-      "path": "/#/play/airforce-fighter",
-      "expectSelector": "[data-lcd-canvas=\"airforce-fighter\"]"
-    },
-    {
-      "name": "Title runs on the LCD panel: guerrilla-warfare",
-      "path": "/#/play/guerrilla-warfare",
-      "expectSelector": "[data-lcd-canvas=\"guerrilla-warfare\"]"
-    },
-    {
-      "name": "Title runs on the LCD panel: submarine-battle",
-      "path": "/#/play/submarine-battle",
-      "expectSelector": "[data-lcd-canvas=\"submarine-battle\"]"
-    },
-    {
-      "name": "Title runs on the LCD panel: space-attacker",
-      "path": "/#/play/space-attacker",
-      "expectSelector": "[data-lcd-canvas=\"space-attacker\"]"
-    },
-    {
-      "name": "Title runs on the LCD panel: hungry-dragon",
-      "path": "/#/play/hungry-dragon",
-      "expectSelector": "[data-lcd-canvas=\"hungry-dragon\"]"
-    },
-    {
-      "name": "Title runs on the LCD panel: sl-bankman",
-      "path": "/#/play/sl-bankman",
-      "expectSelector": "[data-lcd-canvas=\"sl-bankman\"]"
+      "expectSelector": "[data-unknown] [data-back-to-studio]"
     }
   ]
 }

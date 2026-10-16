@@ -1,97 +1,68 @@
-# GameWatch
+# Homeroom Studio
 
-> A simulated LCD handheld arcade hybrid: eight original titles, a Memory Card and a dashboard of simulated modules.
+> A dark AI media editor: one project, built from clips, text, transitions and audio, with an inspector, a multi-track timeline and an assistant.
 
-GameWatch boots like the handheld it is pretending to be. The screen shows a
-six-module dashboard, and the Arcade is where most of it happens: an
-auto-sliding hero banner with amber arrows and a glass `PLATFORM: GAMEWATCH`
-badge, amber genre pills, and the titles as catalog rows with an LCD
-thumbnail, a boxed genre tag and a How to Play link. Each title has its own
-How to Play drawer, its own LCD play screen and its own Memory Card cards, and
-a manager screens edits every title's words and art.
+Homeroom Studio is laid out like a professional video editor. A top bar
+carries the breadcrumb, Undo and Redo, the tool row, the collaborator
+avatars, the AI usage meter and Export. The Project media library sits on
+the left, the Preview player with its scrub bar and `01:38/01:40` timecode
+in the centre, the Inspector (Video, Animation, Tracking, Audio & FX) on the
+right with the assistant widget under it, and the multi-track timeline runs
+the full width underneath.
 
-## The dashboard modules
+## What is real and what is simulated
 
-- **Arcade** is the default screen. The hero banner slides itself or by its
-  arrows, the amber pills filter the list by broad genre, and each catalog row
-  opens its How to Play drawer or starts the title on the panel. The
-  `+ Add Game` footer leads to the manager.
-- **Manage titles** (`#/manage`) edits any title in the Arcade: its name, its
-  year, its broad genre, its genre box, its sub-genres, its descriptions, its
-  control list, and its thumbnail and bezel pictures. `#/manage/banner` holds
-  the person's own banner slide list.
-- **Terminal** is a simulated handheld terminal. `HELP`, `TITLES`, `RUN
-  <title>`, `CARDS`, `SYSINFO`, `SKIN`, `COVERS`, `UFW` and `CLS` all work.
-- **FTP** is a read-only simulated view of what the handheld holds: the eight
-  titles, your Memory Card, your added titles and the OS settings. It uploads
-  and downloads nothing.
-- **OS** is the handheld's own OS screen. Three panel skins (classic, silver,
-  night) and a provisioning transcript that reads back what it last said it
-  did.
-- **Features** covers the snapshot retention: snapshots are kept for two
-  months, in UTC, and an older one is removed on the next start. It also
-  streams a fixed, obviously simulated **Install UFW** transcript.
-- **Settings** is the panel's picture and sound (volume, gamma, brightness,
-  contrast, scanlines, curvature) and the mapping for the handheld's nine keys.
+The platform has no image, video or audio model behind its AI proxy, no
+credit balance and no way to encode a file, so:
 
-## The eight built-in titles
+- **Generate Images, Generate Avatar, Generate Video, the SFX bank, the
+  voice talent and Export are simulated.** Each opens a labelled panel that
+  names the request, says plainly that nothing was produced, quotes no price,
+  and offers **Add to project as a placeholder**, which leaves a clearly
+  marked row in the library and a block on the timeline.
+- **The assistant chat is real.** Generate Text and anything typed into the
+  prompt bar go through the platform's own text AI, charged to your own daily
+  AI budget under a permission you approve the first time. The platform's own
+  dialog asks; the app never asks for a key.
+- **The AI usage meter is real.** It reads today's spend through this app
+  against the cap you chose, the same two numbers the platform's Settings
+  show. **Manage AI permissions in the platform's Settings** is where the cap
+  changes or the permission is withdrawn. There is no Top Up.
+- **Where the platform gives the app no AI** (every staging preview, and any
+  copy outside the platform) the meter and the widget read **AI assistant
+  unavailable in this environment**, and the simulated quick actions still
+  open their labelled panels.
 
-Each is original to this app, has its own segment art and its own scoring
-tiers, and is played with the handheld's own keys. All eight are rows in the
-`rr_titles` table, seeded from `public/titles.originals.js` on every boot, so
-a fresh database still renders the whole collection. Their rules and their
-panel art stay in code, which is why the manager can change what a title says
-without changing how it plays.
+## The screens
 
-| Title | Genre box | Genres |
-| --- | --- | --- |
-| Western Bar | Soda jerk | Serve, Reflex, Timing |
-| Battle Field | Obstacle course | Hurdle, Rhythm, Reflex |
-| Airforce Fighter | Glider | Lift, Balance, Endurance |
-| Guerrilla Warfare | Jungle trail | Trail, Choice, Memory |
-| Submarine Battle | Deep-sea salvage | Dive, Winch, Careful |
-| Space Attacker | Asteroid dodging | Dodge, Reaction, Endurance |
-| Hungry Dragon | Catch and dodge | Catch, Dodge, Nerve |
-| SL Bankman | Coin sorting | Sort, Speed, Precision |
+- `#/studio` is the editor and the default route. `#/studio/library?q=`
+  applies a search, `#/studio/clips/<id>` selects a clip,
+  `#/studio/inspector/<tab>` shows a tab, `#/studio/timeline` and
+  `#/studio/assistant` scroll to those regions, `#/studio/export` opens the
+  simulated export panel and `#/studio/generate/<kind>` a simulated
+  generation panel.
+- `#/about` says what the studio is and what in it is simulated.
+- Any retired handheld address lands on the studio's not-here state.
 
-All eight are simulations, and the app says so on every surface. There is no
-violence, no weaponry, no gambling, no betting and no loot box anywhere in
-them. Nothing here borrows a real hardware brand.
+## Data
 
-## How it works
+Five public tables, keyed by the platform user id: `rr_projects`,
+`rr_media`, `rr_tracks`, `rr_clips` and `rr_assistant`. A project is one
+person's own; a person with none sees the sample project read-only (staging
+only, seeded under a fake account) and their first change starts their own
+copy of it. A clip's picture is a platform-storage URL and file id, never
+bytes.
 
-The app is a Node/Express server with a static frontend, and every piece of
-the viewer's own state lives in Postgres, keyed by the platform user id:
-
-- `public/lcd.js` is the segment kit: the art language, the seven-segment
-  digits, the printed labels and the cell bars.
-- `public/games.js` holds the eight titles as pure, deterministic state
-  machines and their segment drawing, with no DOM or storage.
-- `public/titles.originals.js` is the eight built-in titles as plain data, the
-  app's seed for the `rr_titles` table.
-- `public/manage.js` is the manager's forms: a title's words, controls and
-  pictures, and the banner's slide list.
-- `public/crt.js` is the picture pipeline: a 320x200 segment backbuffer scaled
-  onto the visible canvas with the viewer's gamma, brightness, contrast,
-  scanlines and curvature.
-- `public/play.js` is the play screen (panel, keypad, readout, Memory Card, How
-  to Play drawer) and the standalone how-to screen. `public/admin.js` is the
-  panel for titles a person has added.
-- `public/app.js` is the shell, the six dashboard modules and the boot
-  sequence.
-- `server.js` serves the API and the shell, verifies the platform's iframe
-  token, and owns the tables: `rr_titles` and `rr_title_slides` (the Arcade's
-  collection and a person's banner slides), `rr_settings`, `rr_keymap`,
-  `rr_saves`, `rr_catalogue`, `rr_skins` and `rr_snapshots`. Uploaded art goes
-  to platform storage, so only its URL and file id are kept here.
-
-## Running it
+## Development
 
 ```sh
 npm ci --include=dev
 npm run build      # compiles styles/tailwind-input.css to public/tailwind.css
-npm start          # node server.js, on PORT (default 3000)
+npm test           # the assistant, proxy, timeline and catalogue tests
+node server.js
 ```
 
-`DATABASE_URL`, `USERNODE_JWT_PUBLIC_KEY` and `USERNODE_APP_ID` are injected
-by the platform at runtime.
+The platform injects `DATABASE_URL`, `USERNODE_JWT_PUBLIC_KEY`,
+`USERNODE_APP_ID`, `PORT`, `USERNODE_ENV` and, in production only,
+`USERNODE_LLM_PROXY_URL` and `USERNODE_LLM_PROXY_TOKEN`. See `CLAUDE.md`
+for the design and the app-specific conventions.

@@ -74,10 +74,10 @@ app.get(/^\/usernode-(?:bridge|native|tailwind)\//, async (req, res) => {
 });
 
 /* ── "Now", so a preview can be shown as of a chosen moment ───────────────
- * The Features screen's two-month snapshot retention is the only thing here
- * that reasons about a date, so the moment a preview was opened at has to
- * reach the server. Staging only, and only the value of "now" changes: the
- * code path is the same everywhere.
+ * Nothing in the studio reasons about a date today, but the moment a preview
+ * was opened at still reaches the server as req.now, kept for any screen that
+ * does. Staging only, and only the value of "now" changes: the code path is
+ * the same everywhere.
  */
 const PREVIEW_NOW = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 function requestNow(req) {
@@ -147,531 +147,514 @@ app.get('/health', (_req, res) => {
 // /favicon.ico doesn't fall through to the auth-gated catch-all.
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 
-/* ── GameWatch's data ──────────────────────────────────────────────────────
- * Everything a person's handheld keeps lives here, keyed by the platform
- * user id from the verified token: the settings the screens read, the
- * handheld key mapping, the Memory Card slots, the OS skin, the snapshots
- * and the covers added in the Arcade. Nothing is kept in the browser.
+/* ── Homeroom Studio's data ─────────────────────────────────────────────────
+ * One person's own project, its media, its tracks, its clips and its
+ * assistant transcript, keyed by the platform user id from the verified
+ * token. Nothing is kept in the browser.
  *
- * Every table is public by default: they hold one person's own panel
- * settings, their own key mapping, their own save states and their own
- * snapshot labels. A stranger seeing every row would see the same thing the
- * app shows that person on their own screen. No secrets, no messages, no
- * personal information beyond the platform username.
+ * Every table is public by default: a row is one person's own project and
+ * the words of their own chat with the assistant, which the app shows them
+ * on their own screen. No secrets, no messages between people, no payment
+ * record (the spend figures are the platform's own meter readings, already
+ * shown to that person in the platform's Settings), no personal information
+ * beyond the platform username.
  */
 
-// The settings are the panel's picture and sound, each with the range the
-// on-screen slider offers. The defaults are the handheld's shipping picture:
-// soft scanlines, a gently curved panel, sound up. A fixed LCD panel has no
-// aspect to choose and no frame skip to set, so neither is offered any more.
-const SETTINGS_DEFAULTS = { volume: 70, gamma: 1, brightness: 0, scanline: 35, contrast: 0, curvature: 30 };
-const SETTINGS_RANGE = {
-  volume: [0, 100], gamma: [0.5, 2], brightness: [-50, 50],
-  scanline: [0, 100], contrast: [-50, 50], curvature: [0, 100],
+const crypto = require('crypto');
+const { callProxy } = require('./lib/llm-proxy');
+
+/* ── The platform's text AI ───────────────────────────────────────────────
+ * The one real generation. Production containers carry the proxy's URL and
+ * this app's token; staging containers carry NEITHER, by the platform's own
+ * design, so an unreviewed build can spend nobody's budget. The route below
+ * detects the absence and answers plainly instead of calling anything. This
+ * is an environment fact, not a feature gate: nothing here reads IS_STAGING.
+ */
+const LLM_ENABLED = !!process.env.USERNODE_LLM_PROXY_TOKEN;
+const LLM_URL = (process.env.USERNODE_LLM_PROXY_URL || '').replace(/\/+$/, '');
+const ASSISTANT_MODEL = 'claude-sonnet-5-5';
+const ASSISTANT_MAX_TOKENS = 600;
+const ASSISTANT_SYSTEM = [
+  'You are the Homeroom Studio assistant for one media project in a dark video editing suite.',
+  'You answer questions about the project and draft titles, captions, scripts, descriptions and shot lists.',
+  'You cannot generate images, video or audio. If asked, say so plainly and point at the studio\'s',
+  'labelled placeholders, which are simulations.',
+  'Decline anything sexual or suggestive, anything violent or about weapons, and anything about',
+  'gambling, betting or loot boxes. Answer such a request with one short neutral sentence and nothing more.',
+  'Keep replies short and practical. Write plain prose without em dashes.',
+].join(' ');
+
+// The default project a person starts with, until they have one of their
+// own. The inspector's own controls are its columns.
+const PROJECT_DEFAULTS = {
+  name: 'Untitled project',
+  aspect: '16:9',
+  resolution: '1K',
+  durationMs: 100000,
+  cameraPreset: 'dolly-zoom',
+  motionPreset: 'natural',
+  motionRealism: 7,
+  volume: 75,
 };
+const DEFAULT_TRACKS = [
+  { kind: 'text', label: 'Text' },
+  { kind: 'clip', label: 'Clips' },
+  { kind: 'transition', label: 'Transitions' },
+  { kind: 'audio', label: 'Audio' },
+];
+const TRACK_KINDS = ['text', 'clip', 'transition', 'audio', 'voice'];
+const MEDIA_KINDS = ['clip', 'image', 'avatar', 'audio', 'placeholder'];
+const ASPECTS = ['16:9', '9:16', '9:16-tiktok', '9:16-reels', '1:1', '4:5', '16:9-facebook', '1:1-facebook'];
+const RESOLUTIONS = ['1K', '2K', '4K'];
+const CAMERAS = ['static', 'dolly-zoom', 'slow-pan', 'orbit', 'crane-up'];
+const MOTIONS = ['natural', 'stylised', 'slow-motion', 'handheld'];
+const DURATION_MS = [5000, 600000];
 
-// The handheld's nine keys, as columns in rr_keymap. Six were already there
-// under their old names (the joystick's confirm and second are this
-// handheld's Game A and Game B), so the mapping is not thrown away: it is
-// read and written through the handheld's own names.
-const KEY_COLUMNS = {
-  up: 'up_key',
-  down: 'down_key',
-  left: 'left_key',
-  right: 'right_key',
-  game_a: 'confirm_key',
-  game_b: 'second_key',
-  sound: 'sound_key',
-  time: 'time_key',
-  reset: 'reset_key',
-};
-const KEY_NAMES = Object.keys(KEY_COLUMNS);
-
-// The OS skins. A skin is a choice of palette for the handheld's own OS
-// screen, so it is validated against this list rather than stored as it
-// arrives.
-const SKINS = ['classic', 'silver', 'night'];
-const DEFAULT_SKIN = 'classic';
-
-// Snapshots are kept for two months. The app reasons in UTC.
-const RETENTION_DAYS = 60;
-
-function clampSetting(key, value) {
-  const range = SETTINGS_RANGE[key];
-  if (!range) return SETTINGS_DEFAULTS[key];
-  const n = Number(value);
-  if (!Number.isFinite(n)) return SETTINGS_DEFAULTS[key];
-  return Math.max(range[0], Math.min(range[1], n));
-}
-
-// A read route must never assume there is a person: a guest reads the Arcade
-// and its How to Play overlays, so every read answers a guest-shaped empty
-// document rather than failing.
 function userId(req) {
   return req.user ? String(req.user.id) : null;
 }
-
-function signedIn(req) {
-  return !!req.user;
-}
-
-async function readSettings(id) {
-  if (!id) return Object.assign({}, SETTINGS_DEFAULTS);
-  const { rows } = await pool.query(
-    `SELECT volume, gamma, brightness, scanline, contrast, curvature
-       FROM rr_settings WHERE user_id = $1`,
-    [id],
-  );
-  const row = rows[0];
-  if (!row) return Object.assign({}, SETTINGS_DEFAULTS);
-  return {
-    volume: Number(row.volume), gamma: Number(row.gamma), brightness: Number(row.brightness),
-    scanline: Number(row.scanline), contrast: Number(row.contrast), curvature: Number(row.curvature),
-  };
-}
-
-async function readBindings(id) {
-  if (!id) return null;
-  const cols = Object.values(KEY_COLUMNS).join(', ');
-  const { rows } = await pool.query(`SELECT ${cols} FROM rr_keymap WHERE user_id = $1`, [id]);
-  const row = rows[0];
-  if (!row) return null;
-  const out = {};
-  for (const name of KEY_NAMES) out[name] = row[KEY_COLUMNS[name]];
-  return out;
-}
-
-async function readSkins(id) {
-  if (!id) return { skin: DEFAULT_SKIN, transcript: [] };
-  const { rows } = await pool.query('SELECT skin, transcript FROM rr_skins WHERE user_id = $1', [id]);
-  const row = rows[0];
-  if (!row) return { skin: DEFAULT_SKIN, transcript: [] };
-  return {
-    skin: SKINS.includes(row.skin) ? row.skin : DEFAULT_SKIN,
-    transcript: Array.isArray(row.transcript) ? row.transcript.filter((l) => typeof l === 'string').slice(-40) : [],
-  };
-}
-
-// A snapshot, with its age and expiry worked out against the request's own
-// "now", so a preview opened at a moment shows that moment's retention.
-function shapeSnapshot(row, now) {
-  const taken = row.taken_at ? new Date(row.taken_at) : null;
-  const ageDays = taken && !Number.isNaN(taken.getTime())
-    ? Math.max(0, Math.floor((now.getTime() - taken.getTime()) / 86400000))
-    : 0;
-  const expiresAt = taken && !Number.isNaN(taken.getTime())
-    ? new Date(taken.getTime() + RETENTION_DAYS * 86400000)
-    : null;
-  return {
-    id: String(row.id),
-    label: row.label,
-    takenAt: row.taken_at,
-    ageDays,
-    expiresAt,
-    pastRetention: ageDays >= RETENTION_DAYS,
-  };
-}
-
-async function readSnapshots(id, now) {
-  if (!id) return [];
-  const { rows } = await pool.query(
-    'SELECT id, label, taken_at FROM rr_snapshots WHERE user_id = $1 ORDER BY taken_at DESC, id DESC',
-    [id],
-  );
-  return rows.map((row) => shapeSnapshot(row, now));
-}
-
-/* ── The Arcade's titles ──────────────────────────────────────────────────
- * A title's WORDS are rows in rr_titles (seeded from the eight originals).
- * What a title DOES is code in public/games.js, so an edit changes what a
- * title says and shows, never how it plays.
- */
-
-// The eight originals' own words, read from the same file the browser reads so
-// there is exactly one copy of each title. Loaded once, on boot: the seed needs
-// it on every start and it cannot change while the app runs.
-let BUILT_IN_TITLES = [];
-
-async function loadOriginals() {
-  if (BUILT_IN_TITLES.length) return BUILT_IN_TITLES;
-  try {
-    const mod = await import('./public/titles.originals.js');
-    BUILT_IN_TITLES = Array.isArray(mod.BUILT_IN_TITLES) ? mod.BUILT_IN_TITLES : [];
-  } catch (err) {
-    console.warn('could not load the built-in titles: ' + err.message);
-    BUILT_IN_TITLES = [];
-  }
-  return BUILT_IN_TITLES;
-}
-
-// One title row, as the API answers it. `viewerId` is who is asking, so the
-// row can say whether it is theirs; a built-in belongs to the collection, and
-// any signed-in person may edit it (the edit is shared).
-function shapeTitle(row, viewerId) {
-  const builtIn = !!row.built_in;
-  const owner = row.owner_id == null ? null : String(row.owner_id);
-  const json = (v) => (Array.isArray(v) ? v : []);
-  return {
-    id: String(row.id),
-    title: row.title,
-    year: row.year == null ? 0 : Number(row.year),
-    category: row.category || 'Other',
-    genreBox: row.genre_box || '',
-    genres: json(row.genres),
-    tagline: row.tagline || '',
-    summary: row.summary || '',
-    controls: json(row.controls),
-    howTo: json(row.how_to),
-    coverArt: json(row.cover_art),
-    tiers: json(row.tiers),
-    thumbnailUrl: row.thumbnail_url || null,
-    thumbnailFileId: row.thumbnail_file_id || null,
-    bezelUrl: row.bezel_url || null,
-    bezelFileId: row.bezel_file_id || null,
-    builtIn,
-    ownerId: owner,
-    mine: !builtIn && !!viewerId && owner === String(viewerId),
-    sortOrder: Number(row.sort_order) || 999,
-  };
-}
-
-async function readTitles(viewerId) {
-  const { rows } = await pool.query(
-    'SELECT * FROM rr_titles ORDER BY built_in DESC, sort_order ASC, title ASC',
-  );
-  return rows.map((r) => shapeTitle(r, viewerId));
-}
-
-// The hero banner's slide list, for one person.
-function shapeSlide(row) {
-  return {
-    id: String(row.id),
-    titleId: row.title_id ? String(row.title_id) : null,
-    artUrl: row.art_url || null,
-    artFileId: row.art_file_id || null,
-    sortOrder: Number(row.sort_order) || 0,
-  };
-}
-
-async function readSlides(ownerId) {
-  if (!ownerId) return [];
-  const { rows } = await pool.query(
-    'SELECT id, title_id, art_url, art_file_id, sort_order FROM rr_title_slides WHERE owner_id = $1 ORDER BY sort_order ASC, id ASC',
-    [ownerId],
-  );
-  return rows.map(shapeSlide);
-}
-
-// ── Validation for a title write ─────────────────────────────────────────
-// Everything a manager can type is clamped to the shape the screens expect,
-// and the art is only ever a URL the platform's storage handed back. Image
-// bytes are never stored here.
-const TITLE_KEYS = ['up', 'down', 'left', 'right', 'game_a', 'game_b', 'sound', 'time', 'reset'];
 
 function text(value, max) {
   return typeof value === 'string' ? value.slice(0, max) : '';
 }
 
-function httpUrl(value) {
-  return typeof value === 'string' && /^https?:\/\//.test(value) ? value.slice(0, 500) : null;
+// Art is only ever an https URL the platform's storage handed back. Image
+// bytes are never stored here.
+function httpsUrl(value) {
+  return typeof value === 'string' && /^https:\/\//.test(value) ? value.slice(0, 500) : null;
 }
 
-function cleanTitleWrite(body, id) {
-  const raw = body || {};
-  const genres = Array.isArray(raw.genres)
-    ? raw.genres.filter((g) => typeof g === 'string' && g.trim()).map((g) => g.trim().slice(0, 40)).slice(0, 8)
-    : [];
-  const controls = Array.isArray(raw.controls)
-    ? raw.controls.map((c) => ({
-      keys: text(c && c.keys, 60).trim(),
-      action: text(c && c.action, 160).trim(),
-      plays: Array.isArray(c && c.plays)
-        ? c.plays.filter((k) => TITLE_KEYS.includes(k)).slice(0, 6) : [],
-    })).filter((c) => c.keys || c.action).slice(0, 12)
-    : [];
-  const howTo = Array.isArray(raw.howTo)
-    ? raw.howTo.map((b) => ({
-      heading: text(b && b.heading, 80).trim(),
-      lines: Array.isArray(b && b.lines)
-        ? b.lines.filter((l) => typeof l === 'string' && l.trim()).map((l) => l.trim().slice(0, 400)).slice(0, 12)
-        : [],
-    })).filter((b) => b.heading || b.lines.length).slice(0, 8)
-    : [];
-  const tiers = Array.isArray(raw.tiers)
-    ? raw.tiers.map((t) => ({
-      name: text(t && t.name, 40).trim() || 'Tier',
-      min: Number.isFinite(Number(t && t.min)) ? Math.round(Number(t.min)) : 0,
-      max: t && t.max == null ? null : (Number.isFinite(Number(t.max)) ? Math.round(Number(t.max)) : null),
-    })).slice(0, 6)
-    : [];
-  const coverArt = Array.isArray(raw.coverArt)
-    ? raw.coverArt.filter((r) => typeof r === 'string').map((r) => r.slice(0, 80)).slice(0, 40)
-    : [];
-  const year = Number(raw.year);
+function pick(list, value, fallback) {
+  return list.includes(value) ? value : fallback;
+}
+
+function clampInt(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+
+/* ── Reading ─────────────────────────────────────────────────────────────── */
+
+function shapeProject(row) {
   return {
-    id: String(id),
-    title: text(raw.title, 120).trim(),
-    year: Number.isFinite(year) && year >= 1900 && year <= 2100 ? Math.round(year) : null,
-    category: text(raw.category, 40).trim() || 'Other',
-    genreBox: text(raw.genreBox, 60).trim(),
-    genres: genres.length ? genres : ['Other'],
-    tagline: text(raw.tagline, 200).trim(),
-    summary: text(raw.summary, 2000).trim(),
-    controls,
-    howTo,
-    coverArt,
-    tiers,
-    thumbnailUrl: raw.thumbnail === null ? null : httpUrl(raw.thumbnail && raw.thumbnail.url),
-    thumbnailFileId: raw.thumbnail === null ? null : text(raw.thumbnail && raw.thumbnail.fileId, 200) || null,
-    bezelUrl: raw.bezel === null ? null : httpUrl(raw.bezel && raw.bezel.url),
-    bezelFileId: raw.bezel === null ? null : text(raw.bezel && raw.bezel.fileId, 200) || null,
-    sortOrder: Number.isFinite(Number(raw.sortOrder)) ? Math.round(Number(raw.sortOrder)) : 100,
+    id: String(row.id),
+    ownerId: row.owner_id == null ? null : String(row.owner_id),
+    name: row.name || PROJECT_DEFAULTS.name,
+    aspect: pick(ASPECTS, row.aspect, PROJECT_DEFAULTS.aspect),
+    resolution: pick(RESOLUTIONS, row.resolution, PROJECT_DEFAULTS.resolution),
+    durationMs: clampInt(row.duration_ms, DURATION_MS[0], DURATION_MS[1], PROJECT_DEFAULTS.durationMs),
+    cameraPreset: pick(CAMERAS, row.camera_preset, PROJECT_DEFAULTS.cameraPreset),
+    motionPreset: pick(MOTIONS, row.motion_preset, PROJECT_DEFAULTS.motionPreset),
+    motionRealism: clampInt(row.motion_realism, 0, 10, PROJECT_DEFAULTS.motionRealism),
+    volume: clampInt(row.volume, 0, 100, PROJECT_DEFAULTS.volume),
+    assistantName: row.assistant_name || null,
+    sample: !!row.sample,
+    updatedAt: row.updated_at || null,
   };
 }
 
-async function readCatalogue(id) {
-  if (!id) return [];
-  const { rows } = await pool.query(
-    `SELECT id, title, filename, storage_url, added_at
-       FROM rr_catalogue WHERE user_id = $1 ORDER BY added_at DESC, id DESC`,
-    [id],
-  );
-  return rows.map((r) => ({
-    id: String(r.id),
-    title: r.title,
-    filename: r.filename || null,
-    // A cover's image URL. The bytes never come here; only the URL the
-    // platform's storage returned.
-    storageUrl: r.storage_url || null,
-    addedAt: r.added_at,
-  }));
+function shapeMedia(row) {
+  return {
+    id: String(row.id),
+    projectId: row.project_id == null ? null : String(row.project_id),
+    title: row.title,
+    kind: pick(MEDIA_KINDS, row.kind, 'clip'),
+    durationMs: Math.max(0, Number(row.duration_ms) || 0),
+    artUrl: row.art_url || null,
+    artFileId: row.art_file_id || null,
+    simulated: row.simulated !== false,
+    sortOrder: Number(row.sort_order) || 100,
+    createdAt: row.created_at || null,
+  };
 }
 
-// The Memory Card. A slot's shape is the same for every title, so a slot
-// lists its own high score without the server knowing which title it is.
-function shapeSave(row) {
-  const state = row.state && typeof row.state === 'object' ? row.state : {};
+function shapeTrack(row) {
   return {
-    gameId: row.game_id,
-    slot: Number(row.slot),
+    id: String(row.id),
+    projectId: String(row.project_id),
+    kind: pick(TRACK_KINDS, row.kind, 'clip'),
+    label: row.label || row.kind,
+    locked: !!row.locked,
+    hidden: !!row.hidden,
+    sortOrder: Number(row.sort_order) || 0,
+  };
+}
+
+function shapeClip(row) {
+  return {
+    id: String(row.id),
+    projectId: String(row.project_id),
+    trackId: String(row.track_id),
+    mediaId: row.media_id == null ? null : String(row.media_id),
     label: row.label || '',
-    highScore: Number.isFinite(Number(state.highScore)) ? Math.round(Number(state.highScore)) : 0,
-    progress: typeof state.progress === 'string' ? state.progress : '',
-    ended: typeof state.ended === 'string' ? state.ended : null,
-    state,
-    savedAt: row.saved_at,
+    startMs: Math.max(0, Number(row.start_ms) || 0),
+    endMs: Math.max(0, Number(row.end_ms) || 0),
+    trimInMs: Math.max(0, Number(row.trim_in_ms) || 0),
+    simulated: row.simulated !== false,
   };
 }
 
-async function readSaves(id) {
-  if (!id) return [];
-  const { rows } = await pool.query(
-    `SELECT game_id, slot, label, state, saved_at FROM rr_saves
-      WHERE user_id = $1 ORDER BY saved_at DESC`,
-    [id],
-  );
-  return rows.map(shapeSave);
+function shapeTurn(row) {
+  return {
+    id: String(row.id),
+    role: row.role === 'assistant' ? 'assistant' : 'user',
+    body: row.body || '',
+    model: row.model || null,
+    spentCents: row.spent_cents == null ? null : Number(row.spent_cents),
+    capCents: row.cap_cents == null ? null : Number(row.cap_cents),
+    createdAt: row.created_at || null,
+  };
 }
 
-// Who GameWatch is signed in as, and everything it keeps for them, in one
-// round trip. `username` is the platform's own answer and never a role.
-app.get('/api/me', async (req, res) => {
-  const id = userId(req);
-  try {
-    const [settings, bindings, saves, skins, snapshots, titles, slides] = await Promise.all([
-      readSettings(id), readBindings(id), readSaves(id), readSkins(id), readSnapshots(id, req.now),
-      readTitles(id), readSlides(id),
-    ]);
-    res.json({
-      id: req.user ? req.user.id : null,
-      username: req.user ? req.user.username : null,
-      signedIn: signedIn(req),
-      retentionDays: RETENTION_DAYS,
-      skins: SKINS,
-      settings,
-      bindings,
-      saves,
-      skin: skins.skin,
-      transcript: skins.transcript,
-      snapshots,
-      titles,
-      slides,
-    });
-  } catch (err) {
-    console.error('watch load failed: ' + err.message);
-    res.status(500).json({ error: 'Could not read this handheld', code: 'watch_unavailable' });
-  }
-});
+// A person's own project. The studio shows one project per person, the
+// first one they have.
+async function ownProjectRow(ownerId) {
+  if (!ownerId) return null;
+  const { rows } = await pool.query(
+    'SELECT * FROM rr_projects WHERE owner_id = $1 ORDER BY sort_order ASC, updated_at ASC LIMIT 1',
+    [ownerId],
+  );
+  return rows[0] || null;
+}
 
-// The Settings screen: the panel's picture and sound, stored for this person
-// and applied to every title they run.
-app.put('/api/settings', async (req, res) => {
-  const raw = (req.body && req.body.settings) || {};
-  const next = {};
-  for (const key of Object.keys(SETTINGS_DEFAULTS)) next[key] = clampSetting(key, raw[key]);
-  try {
-    await pool.query(
-      `INSERT INTO rr_settings (user_id, volume, gamma, brightness, scanline, contrast, curvature, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-       ON CONFLICT (user_id) DO UPDATE SET
-         volume = EXCLUDED.volume, gamma = EXCLUDED.gamma, brightness = EXCLUDED.brightness,
-         scanline = EXCLUDED.scanline, contrast = EXCLUDED.contrast, curvature = EXCLUDED.curvature,
-         updated_at = NOW()`,
-      [userId(req), next.volume, next.gamma, next.brightness, next.scanline, next.contrast, next.curvature],
-    );
-    res.json({ settings: next });
-  } catch (err) {
-    console.error('settings write failed: ' + err.message);
-    res.status(500).json({ error: 'Could not save the settings' });
-  }
-});
+// The sample project: a row marked `sample`, shown read-only to anyone who
+// has no project of their own yet. Production holds none, so there a person
+// with no project sees the default shape; the staging seed below writes one
+// under a fake account, which is what the checks and the shots land on.
+async function sampleProjectRow() {
+  const { rows } = await pool.query(
+    'SELECT * FROM rr_projects WHERE sample = TRUE ORDER BY sort_order ASC, id ASC LIMIT 1',
+  );
+  return rows[0] || null;
+}
 
-// The key mapping screen: the handheld's nine keys.
-app.put('/api/keymap', async (req, res) => {
-  const raw = (req.body && req.body.bindings) || {};
-  const clean = {};
-  for (const name of KEY_NAMES) {
-    const value = raw[name];
-    clean[name] = typeof value === 'string' && value.length <= 24 ? value : null;
-  }
-  const columns = Object.keys(KEY_COLUMNS);
-  try {
-    await pool.query(
-      `INSERT INTO rr_keymap (user_id, ${columns.map((k) => KEY_COLUMNS[k]).join(', ')}, updated_at)
-       VALUES ($1, ${columns.map((_, i) => '$' + (i + 2)).join(', ')}, NOW())
-       ON CONFLICT (user_id) DO UPDATE SET
-         ${columns.map((k) => KEY_COLUMNS[k] + ' = EXCLUDED.' + KEY_COLUMNS[k]).join(', ')},
-         updated_at = NOW()`,
-      [userId(req)].concat(columns.map((k) => clean[k])),
-    );
-    res.json({ bindings: clean });
-  } catch (err) {
-    console.error('keymap write failed: ' + err.message);
-    res.status(500).json({ error: 'Could not save the mapping' });
-  }
-});
+async function readProjectParts(project) {
+  const [media, tracks, clips, turns] = await Promise.all([
+    pool.query('SELECT * FROM rr_media WHERE project_id = $1 ORDER BY sort_order ASC, created_at ASC, id ASC', [project.id]),
+    pool.query('SELECT * FROM rr_tracks WHERE project_id = $1 ORDER BY sort_order ASC, id ASC', [project.id]),
+    pool.query('SELECT * FROM rr_clips WHERE project_id = $1 ORDER BY start_ms ASC, id ASC', [project.id]),
+    pool.query('SELECT * FROM rr_assistant WHERE project_id = $1 ORDER BY created_at ASC, id ASC', [project.id]),
+  ]);
+  return {
+    media: media.rows.map(shapeMedia),
+    tracks: tracks.rows.map(shapeTrack),
+    clips: clips.rows.map(shapeClip),
+    transcript: turns.rows.map(shapeTurn),
+  };
+}
 
-/* ── The Arcade's collections ─────────────────────────────────────────────
- * `GET /api/titles` is the whole Arcade: the eight built-ins (rows, seeded on
- * boot) and every added title. `PUT /api/titles/:id` is the manager's write.
- */
+// The default project's shape, for a person with none and no sample to show.
+// Nothing is written until they make a change.
+function draftStudio(ownerId) {
+  return {
+    project: Object.assign({ id: 'draft', ownerId, assistantName: null, sample: false, updatedAt: null }, PROJECT_DEFAULTS),
+    media: [],
+    tracks: DEFAULT_TRACKS.map((t, i) => ({
+      id: 'draft-' + t.kind, projectId: 'draft', kind: t.kind, label: t.label, locked: false, hidden: false, sortOrder: i,
+    })),
+    clips: [],
+    transcript: [],
+    readOnly: false,
+    sample: false,
+  };
+}
 
-app.get('/api/titles', async (req, res) => {
-  try {
-    const titles = await readTitles(userId(req));
-    res.json({ titles });
-  } catch (err) {
-    console.error('titles read failed: ' + err.message);
-    res.status(500).json({ error: 'Could not read the Arcade titles' });
+// The whole studio for one viewer, in one shape.
+async function readStudio(viewerId) {
+  let row = await ownProjectRow(viewerId);
+  let sample = false;
+  if (!row) {
+    row = await sampleProjectRow();
+    sample = !!row;
   }
-});
+  if (!row) return draftStudio(viewerId);
+  const project = shapeProject(row);
+  const parts = await readProjectParts(project);
+  return Object.assign({ project, readOnly: sample, sample }, parts);
+}
 
-// The manager's write. A new id creates an added title owned by the caller; an
-// existing id edits it. A built-in may be edited by any signed-in person (the
-// edit is shared), but never re-owned, and its drawing stays in code.
-app.put('/api/titles/:id', async (req, res) => {
-  const id = String(req.params.id).slice(0, 80);
-  if (!id) return res.status(400).json({ error: 'That title has no id.' });
-  const next = cleanTitleWrite(req.body || {}, id);
-  if (!next.title) return res.status(400).json({ error: 'Give the title a name.' });
-  const viewer = userId(req);
+// The last meter reading this person's own replies carried, for the meter's
+// fallback when the bridge cannot answer.
+async function lastMeter(ownerId) {
+  if (!ownerId) return { lastSpentCents: null, lastCapCents: null };
+  const { rows } = await pool.query(
+    `SELECT spent_cents, cap_cents FROM rr_assistant
+      WHERE owner_id = $1 AND role = 'assistant' AND spent_cents IS NOT NULL
+      ORDER BY created_at DESC LIMIT 1`,
+    [ownerId],
+  );
+  const row = rows[0];
+  return {
+    lastSpentCents: row ? Number(row.spent_cents) : null,
+    lastCapCents: row && row.cap_cents != null ? Number(row.cap_cents) : null,
+  };
+}
+
+/* ── Writing ─────────────────────────────────────────────────────────────── */
+
+// A write always lands on the writer's OWN project. A person with none gets
+// one now: a copy of the sample project when there is one (so the studio
+// they were looking at is the one they keep), the default shape otherwise.
+// The transcript is never copied: a chat is the person's own.
+async function ensureOwnProject(ownerId) {
+  const existing = await ownProjectRow(ownerId);
+  if (existing) return shapeProject(existing);
+  const sample = await sampleProjectRow();
+  const id = crypto.randomUUID();
+  const client = await pool.connect();
   try {
-    const existing = await pool.query('SELECT built_in, owner_id FROM rr_titles WHERE id = $1', [id]);
-    if (existing.rowCount) {
-      const row = existing.rows[0];
-      if (!row.built_in && String(row.owner_id || '') !== String(viewer)) {
-        return res.status(403).json({ error: 'That title belongs to another Arcade.' });
+    await client.query('BEGIN');
+    if (sample) {
+      const src = shapeProject(sample);
+      await client.query(
+        `INSERT INTO rr_projects (id, owner_id, name, aspect, resolution, duration_ms, camera_preset, motion_preset,
+           motion_realism, volume, assistant_name, sample, sort_order, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, FALSE, 100, NOW())`,
+        [id, ownerId, src.name.replace(/^Staging demo project$/, 'My project'), src.aspect, src.resolution,
+          src.durationMs, src.cameraPreset, src.motionPreset, src.motionRealism, src.volume],
+      );
+      const parts = await readProjectParts(src);
+      const mediaIds = new Map();
+      for (const m of parts.media) {
+        const nid = crypto.randomUUID();
+        mediaIds.set(m.id, nid);
+        await client.query(
+          `INSERT INTO rr_media (id, owner_id, project_id, title, kind, duration_ms, art_url, art_file_id, simulated, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9)`,
+          [nid, ownerId, id, m.title, m.kind, m.durationMs, m.artUrl, m.artFileId, m.sortOrder],
+        );
       }
-      await pool.query(
-        `UPDATE rr_titles SET title = $2, year = $3, category = $4, genre_box = $5, genres = $6::jsonb,
-           tagline = $7, summary = $8, controls = $9::jsonb, how_to = $10::jsonb, cover_art = $11::jsonb,
-           tiers = $12::jsonb, thumbnail_url = $13, thumbnail_file_id = $14, bezel_url = $15,
-           bezel_file_id = $16, updated_at = NOW()
-         WHERE id = $1`,
-        [id, next.title, next.year, next.category, next.genreBox, JSON.stringify(next.genres),
-          next.tagline, next.summary, JSON.stringify(next.controls), JSON.stringify(next.howTo),
-          JSON.stringify(next.coverArt), JSON.stringify(next.tiers), next.thumbnailUrl,
-          next.thumbnailFileId, next.bezelUrl, next.bezelFileId],
-      );
+      const trackIds = new Map();
+      for (const t of parts.tracks) {
+        const nid = crypto.randomUUID();
+        trackIds.set(t.id, nid);
+        await client.query(
+          `INSERT INTO rr_tracks (id, owner_id, project_id, kind, label, locked, hidden, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [nid, ownerId, id, t.kind, t.label, t.locked, t.hidden, t.sortOrder],
+        );
+      }
+      for (const c of parts.clips) {
+        const track = trackIds.get(c.trackId);
+        if (!track) continue;
+        await client.query(
+          `INSERT INTO rr_clips (id, owner_id, project_id, track_id, media_id, label, start_ms, end_ms, trim_in_ms, simulated)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)`,
+          [crypto.randomUUID(), ownerId, id, track, c.mediaId ? mediaIds.get(c.mediaId) || null : null,
+            c.label, c.startMs, c.endMs, c.trimInMs],
+        );
+      }
     } else {
-      await pool.query(
-        `INSERT INTO rr_titles
-           (id, built_in, owner_id, title, year, category, genre_box, genres, tagline, summary,
-            controls, how_to, cover_art, tiers, thumbnail_url, thumbnail_file_id, bezel_url,
-            bezel_file_id, sort_order, updated_at)
-         VALUES ($1, FALSE, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb,
-            $13::jsonb, $14, $15, $16, $17, $18, NOW())`,
-        [id, viewer, next.title, next.year, next.category, next.genreBox, JSON.stringify(next.genres),
-          next.tagline, next.summary, JSON.stringify(next.controls), JSON.stringify(next.howTo),
-          JSON.stringify(next.coverArt), JSON.stringify(next.tiers), next.thumbnailUrl,
-          next.thumbnailFileId, next.bezelUrl, next.bezelFileId, next.sortOrder],
+      const d = PROJECT_DEFAULTS;
+      await client.query(
+        `INSERT INTO rr_projects (id, owner_id, name, aspect, resolution, duration_ms, camera_preset, motion_preset,
+           motion_realism, volume, assistant_name, sample, sort_order, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, FALSE, 100, NOW())`,
+        [id, ownerId, d.name, d.aspect, d.resolution, d.durationMs, d.cameraPreset, d.motionPreset, d.motionRealism, d.volume],
       );
+      for (let i = 0; i < DEFAULT_TRACKS.length; i += 1) {
+        await client.query(
+          `INSERT INTO rr_tracks (id, owner_id, project_id, kind, label, locked, hidden, sort_order)
+           VALUES ($1, $2, $3, $4, $5, FALSE, FALSE, $6)`,
+          [crypto.randomUUID(), ownerId, id, DEFAULT_TRACKS[i].kind, DEFAULT_TRACKS[i].label, i],
+        );
+      }
     }
-    const { rows } = await pool.query('SELECT * FROM rr_titles WHERE id = $1', [id]);
-    res.json({ title: shapeTitle(rows[0], viewer) });
+    await client.query('COMMIT');
   } catch (err) {
-    console.error('title write failed: ' + err.message);
-    res.status(500).json({ error: 'Could not save that title' });
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
   }
-});
+  const row = await ownProjectRow(ownerId);
+  return shapeProject(row);
+}
 
-// A built-in is the collection's: it is refused rather than deleted, because
-// its Memory Card rows and its play screen resolve a title by id. An added
-// title is the one who added it, and its cards are cleared with it.
-app.delete('/api/titles/:id', async (req, res) => {
-  const id = String(req.params.id).slice(0, 80);
+function fail(res, err, what) {
+  console.error(what + ': ' + err.message);
+  res.status(500).json({ error: 'Could not ' + what });
+}
+
+/* ── Routes ──────────────────────────────────────────────────────────────── */
+
+// The whole studio in one round trip: this person's project (or the sample,
+// or the default shape), its media, its tracks and clips, the transcript,
+// and the assistant's own state. It never calls the proxy.
+async function studioFor(req) {
+  const id = userId(req);
+  const studio = await readStudio(id);
+  const meter = await lastMeter(id);
+  return Object.assign(studio, {
+    username: req.user ? (req.user.username || '') : '',
+    signedIn: !!req.user,
+    assistant: Object.assign({ enabled: LLM_ENABLED, model: ASSISTANT_MODEL }, meter),
+  });
+}
+
+app.get('/api/studio', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT built_in, owner_id FROM rr_titles WHERE id = $1', [id]);
-    if (!rows.length) return res.status(404).json({ error: 'That title is not in this Arcade.' });
-    if (rows[0].built_in) return res.status(400).json({ error: 'A built-in title cannot be removed.' });
-    if (String(rows[0].owner_id || '') !== String(userId(req))) {
-      return res.status(403).json({ error: 'That title belongs to another Arcade.' });
-    }
-    await pool.query('DELETE FROM rr_saves WHERE game_id = $1 AND user_id = $2', [id, userId(req)]);
-    await pool.query('DELETE FROM rr_title_slides WHERE title_id = $1 AND owner_id = $2', [id, userId(req)]);
-    await pool.query('DELETE FROM rr_titles WHERE id = $1', [id]);
-    res.status(204).end();
+    res.json(await studioFor(req));
   } catch (err) {
-    console.error('title delete failed: ' + err.message);
-    res.status(500).json({ error: 'Could not remove that title' });
+    fail(res, err, 'read the studio');
   }
 });
 
-/* ── The hero banner ──────────────────────────────────────────────────────
- * A person's own slide list: which titles the banner shows, in what order,
- * and which picture each one uses. It belongs to whoever set it, unlike a
- * title's words, which are shared.
- */
-app.get('/api/banner', async (req, res) => {
+// Starts a person's own project (a copy of the sample when there is one).
+// A write on the sample calls this first.
+app.post('/api/projects', async (req, res) => {
   try {
-    res.json({ slides: await readSlides(userId(req)) });
+    await ensureOwnProject(userId(req));
+    res.json(await studioFor(req));
   } catch (err) {
-    console.error('banner read failed: ' + err.message);
-    res.status(500).json({ error: 'Could not read the banner' });
+    fail(res, err, 'start the project');
   }
 });
 
-app.put('/api/banner', async (req, res) => {
-  const raw = req.body && req.body.slides;
-  if (!Array.isArray(raw)) return res.status(400).json({ error: 'The banner needs a list of slides.' });
+// The inspector's own controls, only the keys present.
+app.put('/api/projects/:id', async (req, res) => {
   const owner = userId(req);
-  const clean = raw.slice(0, 12).map((s, i) => ({
-    titleId: typeof (s && s.titleId) === 'string' ? s.titleId.slice(0, 80) : null,
-    artUrl: s && s.art && s.art.url ? httpUrl(s.art.url) : null,
-    artFileId: s && s.art && typeof s.art.fileId === 'string' ? s.art.fileId.slice(0, 200) : null,
-    sortOrder: i + 1,
-  }));
+  const body = req.body || {};
   try {
+    const project = await ensureOwnProject(owner);
+    if (String(req.params.id) !== project.id) return res.status(404).json({ error: 'That is not your project.' });
+    const next = {
+      name: typeof body.name === 'string' ? (text(body.name, 120).trim() || project.name) : project.name,
+      aspect: 'aspect' in body ? pick(ASPECTS, body.aspect, project.aspect) : project.aspect,
+      resolution: 'resolution' in body ? pick(RESOLUTIONS, body.resolution, project.resolution) : project.resolution,
+      durationMs: 'durationMs' in body ? clampInt(body.durationMs, DURATION_MS[0], DURATION_MS[1], project.durationMs) : project.durationMs,
+      cameraPreset: 'cameraPreset' in body ? pick(CAMERAS, body.cameraPreset, project.cameraPreset) : project.cameraPreset,
+      motionPreset: 'motionPreset' in body ? pick(MOTIONS, body.motionPreset, project.motionPreset) : project.motionPreset,
+      motionRealism: 'motionRealism' in body ? clampInt(body.motionRealism, 0, 10, project.motionRealism) : project.motionRealism,
+      volume: 'volume' in body ? clampInt(body.volume, 0, 100, project.volume) : project.volume,
+    };
+    await pool.query(
+      `UPDATE rr_projects SET name = $3, aspect = $4, resolution = $5, duration_ms = $6, camera_preset = $7,
+         motion_preset = $8, motion_realism = $9, volume = $10, updated_at = NOW()
+       WHERE id = $1 AND owner_id = $2`,
+      [project.id, owner, next.name, next.aspect, next.resolution, next.durationMs, next.cameraPreset,
+        next.motionPreset, next.motionRealism, next.volume],
+    );
+    // A shorter project clamps every block to the new end.
+    await pool.query(
+      `UPDATE rr_clips SET end_ms = LEAST(end_ms, $2), start_ms = LEAST(start_ms, GREATEST(0, $2 - 250))
+       WHERE project_id = $1`,
+      [project.id, next.durationMs],
+    );
+    res.json(await studioFor(req));
+  } catch (err) {
+    fail(res, err, 'save the project');
+  }
+});
+
+// One library row. Every row this app writes is simulated: it has no real
+// media of its own, and a client cannot claim a real generation.
+app.post('/api/media', async (req, res) => {
+  const owner = userId(req);
+  const body = req.body || {};
+  const title = text(body.title, 160).trim();
+  if (!title) return res.status(400).json({ error: 'Give the media row a title.' });
+  try {
+    const project = await ensureOwnProject(owner);
+    const id = crypto.randomUUID();
+    const artUrl = httpsUrl(body.artUrl);
+    await pool.query(
+      `INSERT INTO rr_media (id, owner_id, project_id, title, kind, duration_ms, art_url, art_file_id, simulated, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9)`,
+      [id, owner, project.id, title, pick(MEDIA_KINDS, body.kind, 'placeholder'),
+        clampInt(body.durationMs, 250, 3600000, 5000), artUrl, artUrl ? text(body.artFileId, 200) || null : null,
+        clampInt(body.sortOrder, 0, 10000, 200)],
+    );
+    res.json(Object.assign({ mediaId: id }, await studioFor(req)));
+  } catch (err) {
+    fail(res, err, 'add the media');
+  }
+});
+
+app.delete('/api/media/:id', async (req, res) => {
+  const owner = userId(req);
+  const id = text(req.params.id, 80);
+  try {
+    const { rowCount } = await pool.query('DELETE FROM rr_media WHERE id = $1 AND owner_id = $2', [id, owner]);
+    if (!rowCount) return res.status(404).json({ error: 'That media is not in your library.' });
+    await pool.query('UPDATE rr_clips SET media_id = NULL WHERE media_id = $1 AND owner_id = $2', [id, owner]);
+    res.json(await studioFor(req));
+  } catch (err) {
+    fail(res, err, 'remove the media');
+  }
+});
+
+// A picture the bridge already uploaded: the pair is stored, the bytes never
+// come here. Platform files are immutable, so a replace keeps the new pair.
+app.put('/api/media/:id/art', async (req, res) => {
+  const owner = userId(req);
+  const body = req.body || {};
+  const url = httpsUrl(body.url);
+  if (!url) return res.status(400).json({ error: 'The picture must be an https URL from platform storage.' });
+  try {
+    const { rowCount } = await pool.query(
+      'UPDATE rr_media SET art_url = $3, art_file_id = $4 WHERE id = $1 AND owner_id = $2',
+      [text(req.params.id, 80), owner, url, text(body.fileId, 200) || null],
+    );
+    if (!rowCount) return res.status(404).json({ error: 'That media is not in your library.' });
+    res.json(await studioFor(req));
+  } catch (err) {
+    fail(res, err, 'save the picture');
+  }
+});
+
+// The whole track and clip list, replaced in one transaction, so a moved
+// block never half-applies. Every time is clamped to the project's length.
+app.put('/api/timeline', async (req, res) => {
+  const owner = userId(req);
+  const raw = req.body && Array.isArray(req.body.tracks) ? req.body.tracks : null;
+  if (!raw) return res.status(400).json({ error: 'The timeline needs a list of tracks.' });
+  try {
+    const project = await ensureOwnProject(owner);
+    const length = project.durationMs;
+    const mediaRows = await pool.query('SELECT id FROM rr_media WHERE project_id = $1', [project.id]);
+    const mediaIds = new Set(mediaRows.rows.map((r) => String(r.id)));
+    const tracks = raw.slice(0, 8).map((t, i) => ({
+      id: text(t && t.id, 80) || crypto.randomUUID(),
+      kind: pick(TRACK_KINDS, t && t.kind, 'clip'),
+      label: text(t && t.label, 60).trim() || 'Track',
+      locked: !!(t && t.locked),
+      hidden: !!(t && t.hidden),
+      sortOrder: i,
+      clips: Array.isArray(t && t.clips) ? t.clips.slice(0, 60).map((c) => {
+        const start = clampInt(c && c.startMs, 0, length, 0);
+        const end = Math.max(start + 250, clampInt(c && c.endMs, 0, length, start + 250));
+        const trim = clampInt(c && c.trimInMs, 0, Math.max(0, end - start - 250), 0);
+        const media = c && typeof c.mediaId === 'string' && mediaIds.has(c.mediaId) ? c.mediaId : null;
+        return {
+          id: text(c && c.id, 80) || crypto.randomUUID(),
+          mediaId: media,
+          label: text(c && c.label, 160).trim(),
+          startMs: start,
+          endMs: Math.min(length, end),
+          trimInMs: trim,
+        };
+      }).filter((c) => c.endMs > c.startMs) : [],
+    }));
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query('DELETE FROM rr_title_slides WHERE owner_id = $1', [owner]);
-      for (const s of clean) {
+      await client.query('DELETE FROM rr_clips WHERE project_id = $1 AND owner_id = $2', [project.id, owner]);
+      await client.query('DELETE FROM rr_tracks WHERE project_id = $1 AND owner_id = $2', [project.id, owner]);
+      for (const t of tracks) {
         await client.query(
-          `INSERT INTO rr_title_slides (id, owner_id, title_id, art_url, art_file_id, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [require('crypto').randomUUID(), owner, s.titleId, s.artUrl, s.artFileId, s.sortOrder],
+          `INSERT INTO rr_tracks (id, owner_id, project_id, kind, label, locked, hidden, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [t.id, owner, project.id, t.kind, t.label, t.locked, t.hidden, t.sortOrder],
         );
+        for (const c of t.clips) {
+          await client.query(
+            `INSERT INTO rr_clips (id, owner_id, project_id, track_id, media_id, label, start_ms, end_ms, trim_in_ms, simulated)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)`,
+            [c.id, owner, project.id, t.id, c.mediaId, c.label, c.startMs, c.endMs, c.trimInMs],
+          );
+        }
       }
       await client.query('COMMIT');
     } catch (err) {
@@ -680,253 +663,79 @@ app.put('/api/banner', async (req, res) => {
     } finally {
       client.release();
     }
-    res.json({ slides: await readSlides(owner) });
+    res.json(await studioFor(req));
   } catch (err) {
-    console.error('banner write failed: ' + err.message);
-    res.status(500).json({ error: 'Could not save the banner' });
+    fail(res, err, 'save the timeline');
   }
 });
 
-/* ── The Arcade's added titles, as the older admin panel reads them ───────
- * An added title is a rr_titles row now, so the panel and the manager see the
- * same collection. The entry shape is kept for the panel that already uses it.
+/* ── The assistant: the one real AI route ─────────────────────────────────
+ * Forwards the message to the platform's Claude proxy with this app's token
+ * and the caller's own forwarded iframe token, under the caller's consent
+ * grant. It never asks for a key, never names a third-party host, never
+ * retries and never leaks upstream text. Its failures are codes the widget
+ * turns into its own sentences.
  */
-app.get('/api/catalogue', async (req, res) => {
-  try {
-    const id = userId(req);
-    const titles = await readTitles(id);
-    const entries = titles.filter((t) => !t.builtIn && t.mine).map((t) => ({
-      id: t.id, title: t.title, filename: null, storageUrl: t.thumbnailUrl, addedAt: null,
-    }));
-    res.json({ entries });
-  } catch (err) {
-    console.error('catalogue read failed: ' + err.message);
-    res.status(500).json({ error: 'Could not read the Arcade collection' });
-  }
-});
-
-app.post('/api/catalogue', async (req, res) => {
+app.post('/api/assistant', async (req, res) => {
+  const owner = userId(req);
   const body = req.body || {};
-  const title = typeof body.title === 'string' ? body.title.trim().slice(0, 120) : '';
-  const storageUrl = typeof body.storageUrl === 'string' && /^https?:\/\//.test(body.storageUrl)
-    ? body.storageUrl.slice(0, 500) : null;
-  if (!title) return res.status(400).json({ error: 'Give the title a name.' });
-  const id = require('crypto').randomUUID();
-  const viewer = userId(req);
-  try {
-    await pool.query(
-      `INSERT INTO rr_titles (id, built_in, owner_id, title, year, category, genre_box, genres, tagline,
-         summary, controls, how_to, cover_art, tiers, thumbnail_url, sort_order, updated_at)
-       VALUES ($1, FALSE, $2, $3, NULL, 'Added by you', 'Added by you', '[]'::jsonb, '', '', '[]'::jsonb,
-         '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, $4, $5, NOW())`,
-      [id, viewer, title, storageUrl, 100],
-    );
-    res.status(201).json({ entry: { id, title, filename: null, storageUrl, addedAt: null } });
-  } catch (err) {
-    console.error('catalogue write failed: ' + err.message);
-    res.status(500).json({ error: 'Could not add that title' });
+  const message = text(body.text, 2000).trim();
+  if (!message) return res.status(400).json({ error: 'Type a message first.' });
+  if (!LLM_ENABLED || !LLM_URL) {
+    return res.status(503).json({ error: 'AI assistant unavailable in this environment', code: 'assistant_unavailable' });
   }
-});
+  const history = Array.isArray(body.history)
+    ? body.history
+      .filter((t) => t && (t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string' && t.content.trim())
+      .slice(-10)
+      .map((t) => ({ role: t.role, content: t.content.slice(0, 4000) }))
+    : [];
+  // The proxy wants alternating turns starting with the user; drop a leading
+  // assistant turn and collapse a repeated role.
+  const turns = [];
+  for (const t of history) {
+    if (!turns.length && t.role !== 'user') continue;
+    if (turns.length && turns[turns.length - 1].role === t.role) turns[turns.length - 1] = t;
+    else turns.push(t);
+  }
+  if (turns.length && turns[turns.length - 1].role === 'user') turns.pop();
+  turns.push({ role: 'user', content: message });
 
-app.delete('/api/catalogue/:id', async (req, res) => {
-  const id = String(req.params.id).slice(0, 80);
-  try {
-    const { rows } = await pool.query('SELECT built_in, owner_id FROM rr_titles WHERE id = $1', [id]);
-    if (!rows.length) return res.status(404).json({ error: 'That title is not in this collection.' });
-    if (rows[0].built_in) return res.status(400).json({ error: 'A built-in title cannot be removed.' });
-    if (String(rows[0].owner_id || '') !== String(userId(req))) {
-      return res.status(403).json({ error: 'That title belongs to another Arcade.' });
-    }
-    await pool.query('DELETE FROM rr_saves WHERE game_id = $1 AND user_id = $2', [id, userId(req)]);
-    await pool.query('DELETE FROM rr_title_slides WHERE title_id = $1 AND owner_id = $2', [id, userId(req)]);
-    await pool.query('DELETE FROM rr_titles WHERE id = $1', [id]);
-    res.status(204).end();
-  } catch (err) {
-    console.error('catalogue delete failed: ' + err.message);
-    res.status(500).json({ error: 'Could not remove that title' });
-  }
-});
-
-// The Memory Card: one run per title and card.
-app.get('/api/saves', async (req, res) => {
-  try {
-    res.json({ saves: await readSaves(userId(req)) });
-  } catch (err) {
-    console.error('saves read failed: ' + err.message);
-    res.status(500).json({ error: 'Could not read the Memory Card' });
-  }
-});
-
-app.put('/api/saves/:gameId/:slot', async (req, res) => {
-  const gameId = String(req.params.gameId).slice(0, 60);
-  const slot = Number(req.params.slot);
-  const body = req.body || {};
-  if (!Number.isInteger(slot) || slot < 1 || slot > 4) {
-    return res.status(400).json({ error: 'Cards run from 1 to 4.' });
-  }
-  if (!body.state || typeof body.state !== 'object') {
-    return res.status(400).json({ error: 'There is nothing to save from that run.' });
-  }
-  const label = typeof body.label === 'string' ? body.label.trim().slice(0, 120) : '';
-  try {
-    const { rows } = await pool.query(
-      `INSERT INTO rr_saves (user_id, game_id, slot, label, state, saved_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
-       ON CONFLICT (user_id, game_id, slot) DO UPDATE SET
-         label = EXCLUDED.label, state = EXCLUDED.state, saved_at = NOW()
-       RETURNING game_id, slot, label, state, saved_at`,
-      [userId(req), gameId, slot, label, body.state],
-    );
-    res.json({ save: shapeSave(rows[0]) });
-  } catch (err) {
-    console.error('save write failed: ' + err.message);
-    res.status(500).json({ error: 'Could not write that card' });
-  }
-});
-
-app.delete('/api/saves/:gameId/:slot', async (req, res) => {
-  const slot = Number(req.params.slot);
-  if (!Number.isInteger(slot)) return res.status(400).json({ error: 'Cards run from 1 to 4.' });
-  try {
-    await pool.query(
-      'DELETE FROM rr_saves WHERE user_id = $1 AND game_id = $2 AND slot = $3',
-      [userId(req), String(req.params.gameId).slice(0, 60), slot],
-    );
-    res.status(204).end();
-  } catch (err) {
-    console.error('save delete failed: ' + err.message);
-    res.status(500).json({ error: 'Could not clear that card' });
-  }
-});
-
-// The OS screen. `transcript` is what a re-provision said it did, kept so the
-// screen reads back its own last run.
-app.get('/api/skin', async (req, res) => {
-  try {
-    const skins = await readSkins(userId(req));
-    res.json({ skin: skins.skin, transcript: skins.transcript, skins: SKINS });
-  } catch (err) {
-    console.error('skin read failed: ' + err.message);
-    res.status(500).json({ error: 'Could not read the OS settings' });
-  }
-});
-
-app.put('/api/skin', async (req, res) => {
-  const body = req.body || {};
-  const skin = SKINS.includes(body.skin) ? body.skin : DEFAULT_SKIN;
-  const transcript = Array.isArray(body.transcript)
-    ? body.transcript.filter((l) => typeof l === 'string').slice(-40) : [];
-  try {
-    await pool.query(
-      `INSERT INTO rr_skins (user_id, skin, transcript, updated_at)
-       VALUES ($1, $2, $3::jsonb, NOW())
-       ON CONFLICT (user_id) DO UPDATE SET
-         skin = EXCLUDED.skin, transcript = EXCLUDED.transcript, updated_at = NOW()`,
-      [userId(req), skin, JSON.stringify(transcript)],
-    );
-    res.json({ skin, transcript, skins: SKINS });
-  } catch (err) {
-    console.error('skin write failed: ' + err.message);
-    res.status(500).json({ error: 'Could not save the OS settings' });
-  }
-});
-
-// The Features screen: snapshots and their two-month retention. The age comes
-// from the request's own "now", so a preview opened at a moment reads that
-// moment.
-app.get('/api/snapshots', async (req, res) => {
-  try {
-    res.json({
-      retentionDays: RETENTION_DAYS,
-      now: req.now.toISOString(),
-      snapshots: await readSnapshots(userId(req), req.now),
-    });
-  } catch (err) {
-    console.error('snapshots read failed: ' + err.message);
-    res.status(500).json({ error: 'Could not read the snapshots' });
-  }
-});
-
-app.post('/api/snapshots', async (req, res) => {
-  const body = req.body || {};
-  const label = typeof body.label === 'string' && body.label.trim()
-    ? body.label.trim().slice(0, 120) : 'Snapshot';
-  try {
-    const id = require('crypto').randomUUID();
-    const { rows } = await pool.query(
-      `INSERT INTO rr_snapshots (id, user_id, label, taken_at)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, label, taken_at`,
-      [id, userId(req), label, req.now],
-    );
-    res.status(201).json({ snapshot: shapeSnapshot(rows[0], req.now) });
-  } catch (err) {
-    console.error('snapshot write failed: ' + err.message);
-    res.status(500).json({ error: 'Could not take that snapshot' });
-  }
-});
-
-app.delete('/api/snapshots/:id', async (req, res) => {
-  try {
-    const { rowCount } = await pool.query(
-      'DELETE FROM rr_snapshots WHERE user_id = $1 AND id = $2',
-      [userId(req), String(req.params.id).slice(0, 80)],
-    );
-    if (!rowCount) return res.status(404).json({ error: 'That snapshot is not here.' });
-    res.status(204).end();
-  } catch (err) {
-    console.error('snapshot delete failed: ' + err.message);
-    res.status(500).json({ error: 'Could not remove that snapshot' });
-  }
-});
-
-/* ── Install UFW: a transcript, not a package manager ────────────────────
- * The whole reply is a fixed, obviously simulated log, streamed out a line at
- * a time. It installs nothing, runs no shell and reaches no host, so staging
- * and production run the identical path and IS_STAGING never gates it.
- */
-const UFW_TRANSCRIPT = [
-  'gamewatch-sim> ufw --version',
-  'ufw 0.36.2 (simulated: this line was not produced by a real ufw)',
-  'gamewatch-sim> ufw default deny incoming',
-  'Default incoming policy changed to deny (simulated, nothing was changed)',
-  'gamewatch-sim> ufw default allow outgoing',
-  'Default outgoing policy changed to allow (simulated, nothing was changed)',
-  'gamewatch-sim> ufw allow 22/tcp',
-  'Rule added: allow 22/tcp (simulated)',
-  'gamewatch-sim> ufw allow 80/tcp',
-  'Rule added: allow 80/tcp (simulated)',
-  'gamewatch-sim> ufw allow 443/tcp',
-  'Rule added: allow 443/tcp (simulated)',
-  'gamewatch-sim> ufw --force enable',
-  'Firewall is active and enabled on system startup (simulated)',
-  'gamewatch-sim> ufw status verbose',
-  'Status: active (simulated)',
-  'To                         Action      From',
-  '--                         ------      ----',
-  '22/tcp                     ALLOW       Anywhere',
-  '80/tcp                     ALLOW       Anywhere',
-  '443/tcp                    ALLOW       Anywhere',
-  'gamewatch-sim> done. 0 packages installed, 0 hosts contacted.',
-];
-
-app.post('/api/install-ufw', async (req, res) => {
-  res.writeHead(200, {
-    'content-type': 'text/plain; charset=utf-8',
-    'cache-control': 'no-store',
-    'x-accel-buffering': 'no',
+  const result = await callProxy({
+    proxyUrl: LLM_URL,
+    appToken: process.env.USERNODE_LLM_PROXY_TOKEN,
+    userToken: req.headers['x-usernode-token'],
+    body: { model: ASSISTANT_MODEL, max_tokens: ASSISTANT_MAX_TOKENS, system: ASSISTANT_SYSTEM, messages: turns },
   });
-  let i = 0;
-  let closed = false;
-  req.on('close', () => { closed = true; });
-  const pump = () => {
-    if (closed) return;
-    if (i >= UFW_TRANSCRIPT.length) { res.end(); return; }
-    res.write(UFW_TRANSCRIPT[i] + '\n');
-    i += 1;
-    setTimeout(pump, 90);
-  };
-  pump();
+  if (result.meter.spentCents != null) res.set('x-usernode-llm-spent-cents', String(result.meter.spentCents));
+  if (result.meter.capCents != null) res.set('x-usernode-llm-cap-cents', String(result.meter.capCents));
+  if (result.status === 403) return res.status(403).json({ error: 'AI permission needed', code: 'grant_required' });
+  if (result.status === 429) return res.status(429).json({ error: 'Daily AI limit reached', code: result.code });
+  if (result.status !== 200 || !result.text) {
+    return res.status(502).json({ error: 'The assistant did not answer', code: 'assistant_failed' });
+  }
+  try {
+    const project = await ensureOwnProject(owner);
+    await pool.query(
+      `INSERT INTO rr_assistant (id, owner_id, project_id, role, body, model, spent_cents, cap_cents)
+       VALUES ($1, $2, $3, 'user', $4, NULL, NULL, NULL)`,
+      [crypto.randomUUID(), owner, project.id, message],
+    );
+    await pool.query(
+      `INSERT INTO rr_assistant (id, owner_id, project_id, role, body, model, spent_cents, cap_cents)
+       VALUES ($1, $2, $3, 'assistant', $4, $5, $6, $7)`,
+      [crypto.randomUUID(), owner, project.id, result.text, result.model || ASSISTANT_MODEL,
+        result.meter.spentCents, result.meter.capCents],
+    );
+  } catch (err) {
+    console.warn('assistant turn was not stored: ' + err.message);
+  }
+  res.json({
+    reply: result.text,
+    model: result.model || ASSISTANT_MODEL,
+    spentCents: result.meter.spentCents,
+    capCents: result.meter.capCents,
+  });
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -962,291 +771,181 @@ let shuttingDown = false;
 /* ── Schema, applied idempotently on boot ───────────────────────────────── */
 
 async function ensureSchema() {
-  await pool.query(`CREATE TABLE IF NOT EXISTS rr_settings (
-    user_id TEXT PRIMARY KEY,
-    volume INTEGER NOT NULL DEFAULT 70,
-    gamma NUMERIC(4,2) NOT NULL DEFAULT 1,
-    brightness INTEGER NOT NULL DEFAULT 0,
-    scanline INTEGER NOT NULL DEFAULT 35,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`);
-  // The Settings screen offers contrast and curvature now: both are real
-  // picture effects, so both are stored. A fixed LCD panel has no aspect to
-  // choose and no frame skip to set, so those two columns go.
-  await pool.query('ALTER TABLE rr_settings ADD COLUMN IF NOT EXISTS contrast INTEGER NOT NULL DEFAULT 0');
-  await pool.query('ALTER TABLE rr_settings ADD COLUMN IF NOT EXISTS curvature INTEGER NOT NULL DEFAULT 30');
-  await pool.query('ALTER TABLE rr_settings DROP COLUMN IF EXISTS aspect');
-  await pool.query('ALTER TABLE rr_settings DROP COLUMN IF EXISTS frame_skip');
+  // The handheld's tables go. Nothing in the studio reads them, and leaving
+  // them behind would leave eight tables that look load-bearing and are not.
+  // A production database loses the eight titles, their slides, their saves,
+  // their key mapping and their snapshots on the first boot after this
+  // change, which is the intended consequence of the rewrite.
+  for (const table of ['rr_titles', 'rr_title_slides', 'rr_saves', 'rr_keymap', 'rr_catalogue',
+    'rr_skins', 'rr_snapshots', 'rr_settings']) {
+    await pool.query('DROP TABLE IF EXISTS ' + table);
+  }
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS rr_catalogue (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    filename TEXT,
-    storage_url TEXT,
-    added_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`);
-  // A cover-only entry has no file name, so the older NOT NULL column has to
-  // relax for rows this build writes.
-  await pool.query('ALTER TABLE rr_catalogue ALTER COLUMN filename DROP NOT NULL');
-  await pool.query('CREATE INDEX IF NOT EXISTS rr_catalogue_user_idx ON rr_catalogue (user_id, added_at DESC)');
-
-  // The Arcade's titles are ROWS now. What a title SAYS (its name, year, its
-  // broad genre, its sub-genres, its words, its control list and its three
-  // pictures) lives here, so the manager can edit it and the Arcade is drawn
-  // from what the app actually holds. What a title DOES stays in code
-  // (public/games.js): an added title has no rules and cannot be run, and an
-  // edit never changes how a built-in plays.
-  await pool.query(`CREATE TABLE IF NOT EXISTS rr_titles (
-    id TEXT PRIMARY KEY,
-    built_in BOOLEAN NOT NULL DEFAULT FALSE,
-    owner_id TEXT,
-    title TEXT NOT NULL,
-    year INTEGER,
-    category TEXT,
-    genre_box TEXT,
-    genres JSONB NOT NULL DEFAULT '[]'::jsonb,
-    tagline TEXT,
-    summary TEXT,
-    controls JSONB NOT NULL DEFAULT '[]'::jsonb,
-    how_to JSONB NOT NULL DEFAULT '[]'::jsonb,
-    cover_art JSONB NOT NULL DEFAULT '[]'::jsonb,
-    tiers JSONB NOT NULL DEFAULT '[]'::jsonb,
-    thumbnail_url TEXT,
-    thumbnail_file_id TEXT,
-    bezel_url TEXT,
-    bezel_file_id TEXT,
-    sort_order INTEGER NOT NULL DEFAULT 999,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`);
-  await pool.query('CREATE INDEX IF NOT EXISTS rr_titles_order_idx ON rr_titles (built_in DESC, sort_order ASC, title ASC)');
-
-  // The hero banner's slide list. A slide is a title plus, when the platform's
-  // storage took one, the picture to show for it. The list is per person: it
-  // is a view preference, unlike a title's own words.
-  await pool.query(`CREATE TABLE IF NOT EXISTS rr_title_slides (
+  // One editing project. Its columns are the inspector's own controls.
+  // `sample` marks the one project shown read-only to a person with none.
+  await pool.query(`CREATE TABLE IF NOT EXISTS rr_projects (
     id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL,
-    title_id TEXT,
+    name TEXT NOT NULL,
+    aspect TEXT,
+    resolution TEXT,
+    duration_ms INTEGER NOT NULL DEFAULT 100000,
+    camera_preset TEXT,
+    motion_preset TEXT,
+    motion_realism INTEGER NOT NULL DEFAULT 7,
+    volume INTEGER NOT NULL DEFAULT 75,
+    assistant_name TEXT,
+    sample BOOLEAN NOT NULL DEFAULT FALSE,
+    sort_order INTEGER NOT NULL DEFAULT 100,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS rr_projects_owner_idx ON rr_projects (owner_id, sort_order ASC)');
+
+  // One clip, image, avatar, audio or placeholder row in a project's library.
+  // `simulated` is what the badge reads, so a placeholder is labelled from
+  // data. Art is a platform-storage URL and its file id, never bytes. There
+  // is no price column: a placeholder costs nothing and claims nothing.
+  await pool.query(`CREATE TABLE IF NOT EXISTS rr_media (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    project_id TEXT,
+    title TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL,
     art_url TEXT,
     art_file_id TEXT,
+    simulated BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INTEGER NOT NULL DEFAULT 100,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS rr_media_project_idx ON rr_media (project_id, sort_order ASC)');
+
+  // One lane of the timeline, with the lane head's own lock and hide flags.
+  await pool.query(`CREATE TABLE IF NOT EXISTS rr_tracks (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    label TEXT NOT NULL,
+    locked BOOLEAN NOT NULL DEFAULT FALSE,
+    hidden BOOLEAN NOT NULL DEFAULT FALSE,
     sort_order INTEGER NOT NULL DEFAULT 0
   )`);
-  await pool.query('CREATE INDEX IF NOT EXISTS rr_title_slides_owner_idx ON rr_title_slides (owner_id, sort_order ASC)');
+  await pool.query('CREATE INDEX IF NOT EXISTS rr_tracks_project_idx ON rr_tracks (project_id, sort_order ASC)');
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS rr_saves (
-    user_id TEXT NOT NULL,
-    game_id TEXT NOT NULL,
-    slot INTEGER NOT NULL,
-    label TEXT,
-    state JSONB NOT NULL,
-    saved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (user_id, game_id, slot)
-  )`);
-
-  // The mapping table keeps its six columns and gains the three system keys.
-  // The joystick's confirm and second are this handheld's Game A and Game B,
-  // so an existing mapping is read and written under the handheld's names.
-  await pool.query(`CREATE TABLE IF NOT EXISTS rr_keymap (
-    user_id TEXT PRIMARY KEY,
-    up_key TEXT, down_key TEXT, left_key TEXT, right_key TEXT,
-    confirm_key TEXT, second_key TEXT,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`);
-  await pool.query('ALTER TABLE rr_keymap ADD COLUMN IF NOT EXISTS sound_key TEXT');
-  await pool.query('ALTER TABLE rr_keymap ADD COLUMN IF NOT EXISTS time_key TEXT');
-  await pool.query('ALTER TABLE rr_keymap ADD COLUMN IF NOT EXISTS reset_key TEXT');
-
-  await pool.query(`CREATE TABLE IF NOT EXISTS rr_skins (
-    user_id TEXT PRIMARY KEY,
-    skin TEXT NOT NULL DEFAULT 'classic',
-    transcript JSONB NOT NULL DEFAULT '[]'::jsonb,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`);
-
-  await pool.query(`CREATE TABLE IF NOT EXISTS rr_snapshots (
+  // One block on a lane. trim_in_ms is the trim handle's own offset.
+  await pool.query(`CREATE TABLE IF NOT EXISTS rr_clips (
     id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    label TEXT NOT NULL,
-    taken_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    owner_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    track_id TEXT NOT NULL,
+    media_id TEXT,
+    label TEXT,
+    start_ms INTEGER NOT NULL,
+    end_ms INTEGER NOT NULL,
+    trim_in_ms INTEGER NOT NULL DEFAULT 0,
+    simulated BOOLEAN NOT NULL DEFAULT TRUE
   )`);
-  await pool.query('CREATE INDEX IF NOT EXISTS rr_snapshots_user_idx ON rr_snapshots (user_id, taken_at DESC)');
-}
+  await pool.query('CREATE INDEX IF NOT EXISTS rr_clips_project_idx ON rr_clips (project_id, start_ms ASC)');
 
-// The two-month retention, applied on boot: a snapshot older than the
-// retention window is removed. This runs before the staging seed, so the
-// seeded "past retention" row is put back each boot and a reviewer can see
-// what the retention does.
-async function sweepSnapshots() {
-  try {
-    const { rowCount } = await pool.query(
-      `DELETE FROM rr_snapshots WHERE taken_at < NOW() - ($1 || ' days')::interval`,
-      [String(RETENTION_DAYS)],
-    );
-    if (rowCount) console.log(`retention: removed ${rowCount} snapshot(s) past ${RETENTION_DAYS} days`);
-  } catch (err) {
-    console.warn('retention sweep failed: ' + err.message);
-  }
-}
-
-/* ── The eight built-in titles, seeded on every boot ──────────────────────
- * These are the app's OWN data, not demo data: without them the Arcade is
- * empty and no title can run. So this runs in EVERY environment, is
- * idempotent, and never overwrites a row a person has edited (ON CONFLICT DO
- * NOTHING). A production database gains them on its next boot, which is also
- * what moves the existing rr_catalogue rows across.
- *
- * It is what makes a fresh staging database render the full collection: the
- * code no longer carries the eight titles' words, only their rules.
- */
-async function seedBuiltInTitles() {
-  const originals = await loadOriginals();
-  for (const t of originals) {
-    try {
-      await pool.query(
-        `INSERT INTO rr_titles
-           (id, built_in, owner_id, title, year, category, genre_box, genres, tagline, summary,
-            controls, how_to, cover_art, tiers, thumbnail_url, bezel_url, sort_order, updated_at)
-         VALUES ($1, TRUE, NULL, $2, $3, $4, $5, $6::jsonb, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb,
-            $12::jsonb, NULL, NULL, $13, NOW())
-         ON CONFLICT (id) DO NOTHING`,
-        [t.id, t.title, t.year, t.category, t.genreBox, JSON.stringify(t.genres), t.tagline, t.summary,
-          JSON.stringify(t.controls || []), JSON.stringify(t.howTo || []), JSON.stringify(t.coverArt || []),
-          JSON.stringify(t.tiers || []), t.sortOrder || 100],
-      );
-    } catch (err) {
-      console.warn('built-in seed failed for ' + t.id + ': ' + err.message);
-    }
-  }
-  // A title someone added before this build lived in rr_catalogue. It is
-  // copied across once, with the drawn cover as its art, so nobody loses one.
-  try {
-    await pool.query(
-      `INSERT INTO rr_titles
-         (id, built_in, owner_id, title, year, category, genre_box, genres, tagline, summary,
-          controls, how_to, cover_art, tiers, thumbnail_url, sort_order, updated_at)
-       SELECT c.id, FALSE, c.user_id, c.title, NULL, 'Added by you', 'Added by you', '[]'::jsonb, '',
-         '', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, c.storage_url, 100, NOW()
-       FROM rr_catalogue c
-       WHERE NOT EXISTS (SELECT 1 FROM rr_titles t WHERE t.id = c.id)
-       ON CONFLICT (id) DO NOTHING`,
-    );
-  } catch (err) {
-    console.warn('catalogue migration failed: ' + err.message);
-  }
+  // One assistant turn. spent_cents and cap_cents are the two meter headers
+  // the proxy returned with that reply, null on a seeded or failed turn.
+  await pool.query(`CREATE TABLE IF NOT EXISTS rr_assistant (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    project_id TEXT,
+    role TEXT NOT NULL,
+    body TEXT NOT NULL,
+    model TEXT,
+    spent_cents NUMERIC(10,4),
+    cap_cents INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS rr_assistant_project_idx ON rr_assistant (project_id, created_at ASC)');
 }
 
 /* ── Staging demo rows ────────────────────────────────────────────────────
- * Staging starts from a copy of production, so the tables this app creates
- * are empty there. The demo rows below belong to a fake identity, are
- * idempotent, and never touch the account opening the preview: nothing the
- * app's own logic reads ("has this person saved anything?") is fabricated by
- * them. They exist so the Arcade's collection, the Memory Card, the OS
- * screen, the key mapping and the Features screen have something to show.
+ * Staging starts from a copy of production, so the tables this change creates
+ * are empty there. The rows below belong to a FAKE account, are idempotent,
+ * and never touch the account opening the preview: the reviewer still starts
+ * with no project of their own, and their first change starts one (a copy of
+ * this sample). No seeded row carries a spend figure, so the AI meter cannot
+ * mistake one for a real reading. The demo project is what the checks, the
+ * before/after shots and the "Test this change" links land on.
  */
 const DEMO_USER = 'staging-demo-rig';
-// A 1x1 pixel, so the demo cover is a real image URL without depending on a
-// file staging does not hold.
-const DEMO_COVER = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
+const DEMO_PROJECT = 'staging-demo-project';
+// A 1x1 pixel, so a demo thumbnail is a real image URL without depending on a
+// file staging does not hold. Never a real /app-files/ URL.
+const DEMO_ART = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
 
 async function seedStaging() {
   if (!IS_STAGING) return;
   try {
     await pool.query(
-      `INSERT INTO rr_settings (user_id, volume, gamma, brightness, scanline, contrast, curvature)
-       VALUES ($1, 70, 1, 0, 35, 0, 30) ON CONFLICT (user_id) DO NOTHING`,
-      [DEMO_USER],
-    );
-    await pool.query(
-      `INSERT INTO rr_keymap (user_id, up_key, down_key, left_key, right_key, confirm_key, second_key, sound_key, time_key, reset_key)
-       VALUES ($1, 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'm', 't', 'r')
-       ON CONFLICT (user_id) DO NOTHING`,
-      [DEMO_USER],
-    );
-    await pool.query(
-      `INSERT INTO rr_skins (user_id, skin, transcript)
-       VALUES ($1, 'silver', $2::jsonb) ON CONFLICT (user_id) DO NOTHING`,
-      [DEMO_USER, JSON.stringify([
-        'Staging demo OS: the handheld was re-provisioned to the silver skin.',
-        'Staging demo OS: 8 titles present, 4 Memory Card cards free.',
-      ])],
-    );
-    await pool.query(
-      `INSERT INTO rr_catalogue (id, user_id, title, filename, storage_url)
-       VALUES ($1, $2, 'Staging demo cover', NULL, $3) ON CONFLICT (id) DO NOTHING`,
-      ['staging-demo-cover', DEMO_USER, DEMO_COVER],
-    );
-    // One obvious fake save in the Memory Card, so a slot shows a written run
-    // rather than only empty ones.
-    await pool.query(
-      `INSERT INTO rr_saves (user_id, game_id, slot, label, state)
-       VALUES ($1, 'battle-field', 1, 'Staging demo save', $2::jsonb)
-       ON CONFLICT (user_id, game_id, slot) DO NOTHING`,
-      [DEMO_USER, JSON.stringify({
-        v: 1, game: 'battle-field', highScore: 128, progress: 'track at distance 128',
-        ended: null, score: 128, distance: 128, obstacleIndex: 7, gapMs: 1100,
-        action: 'run', actionMs: 0, cleared: 7, stumbles: 1, stridedIndex: 7,
-        message: 'Staging demo save: two hurdles and a low bar to go.',
-      })],
-    );
-    await pool.query(
-      `INSERT INTO rr_saves (user_id, game_id, slot, label, state)
-       VALUES ($1, 'submarine-battle', 2, 'Staging demo save', $2::jsonb)
-       ON CONFLICT (user_id, game_id, slot) DO NOTHING`,
-      [DEMO_USER, JSON.stringify({
-        v: 1, game: 'submarine-battle', highScore: 30, progress: 'winch at notch 6',
-        ended: null, score: 30, winch: 6, crateIndex: 2, crate: 4, raised: 3, lost: 1,
-        holdMs: 0, phase: 'dive', haulMs: 0,
-        message: 'Staging demo save: the hook is payed out to notch 6.',
-      })],
-    );
-    // The banner's slide list is a real feature, so the preview shows one: three
-    // slides belonging to the FAKE account, never to whoever opens the preview.
-    // One of them carries an uploaded picture.
-    const slides = [
-      { titleId: 'western-bar', artUrl: null },
-      { titleId: 'battle-field', artUrl: DEMO_COVER },
-      { titleId: 'submarine-battle', artUrl: null },
-    ];
-    for (let i = 0; i < slides.length; i += 1) {
-      await pool.query(
-        `INSERT INTO rr_title_slides (id, owner_id, title_id, art_url, art_file_id, sort_order)
-         VALUES ($1, $2, $3, $4, NULL, $5) ON CONFLICT (id) DO NOTHING`,
-        ['staging-demo-slide-' + (i + 1), DEMO_USER, slides[i].titleId, slides[i].artUrl, i + 1],
-      );
-    }
-    // One ADDED title, so the manager shows a row beside the eight built-ins
-    // and the edit a reviewer makes has something that is not a built-in to
-    // touch. It belongs to the fake account.
-    await pool.query(
-      `INSERT INTO rr_titles
-         (id, built_in, owner_id, title, year, category, genre_box, genres, tagline, summary,
-          controls, how_to, cover_art, tiers, thumbnail_url, bezel_url, sort_order, updated_at)
-       VALUES ($1, FALSE, $2, 'Staging demo title', 1985, 'Added by you', 'Staging demo',
-         $3::jsonb, 'A staging demo title, added so the manager has one that is not a built-in.',
-         'Staging demo entry. Any signed-in person may edit a preloaded built-in title, or add one of their own.',
-         $4::jsonb, '[]'::jsonb, $5::jsonb, '[]'::jsonb, $6, NULL, 100, NOW())
+      `INSERT INTO rr_projects (id, owner_id, name, aspect, resolution, duration_ms, camera_preset, motion_preset,
+         motion_realism, volume, assistant_name, sample, sort_order, updated_at)
+       VALUES ($1, $2, 'Staging demo project', '16:9', '1K', 100000, 'dolly-zoom', 'natural', 7, 75, 'Mike', TRUE, 1, NOW())
        ON CONFLICT (id) DO NOTHING`,
-      ['staging-demo-title', DEMO_USER, JSON.stringify(['Staging demo']),
-        JSON.stringify([{ keys: 'Game A', action: 'A staging demo control row', plays: ['game_a'] }]),
-        JSON.stringify([]), DEMO_COVER],
+      [DEMO_PROJECT, DEMO_USER],
     );
-    // Three snapshots, one of them past the two-month retention window, so
-    // the Features screen has something true to say about it.
-    const snapshots = [
-      { id: 'staging-demo-snapshot-1', label: 'Staging demo snapshot (four days old)', days: 4 },
-      { id: 'staging-demo-snapshot-2', label: 'Staging demo snapshot (three weeks old)', days: 21 },
-      { id: 'staging-demo-snapshot-3', label: 'Staging demo snapshot (past retention)', days: 75 },
+    const media = [
+      ['staging-demo-clip-text', 'Staging demo clip: Introduction to text', 'clip', 640000, 1],
+      ['staging-demo-clip-audio', 'Staging demo clip: Introduction to audio', 'audio', 152000, 2],
+      ['staging-demo-clip-video', 'Staging demo clip: Introduction to video', 'clip', 431000, 3],
+      ['staging-demo-placeholder-image', 'Staging demo placeholder: Generate Images', 'placeholder', 5000, 4],
     ];
-    for (const snap of snapshots) {
+    for (const m of media) {
       await pool.query(
-        `INSERT INTO rr_snapshots (id, user_id, label, taken_at)
-         VALUES ($1, $2, $3, NOW() - ($4 || ' days')::interval) ON CONFLICT (id) DO NOTHING`,
-        [snap.id, DEMO_USER, snap.label, String(snap.days)],
+        `INSERT INTO rr_media (id, owner_id, project_id, title, kind, duration_ms, art_url, art_file_id, simulated, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, TRUE, $8) ON CONFLICT (id) DO NOTHING`,
+        [m[0], DEMO_USER, DEMO_PROJECT, m[1], m[2], m[3], DEMO_ART, m[4]],
       );
     }
+    const tracks = [
+      ['staging-demo-track-text', 'text', 'Text', 0],
+      ['staging-demo-track-clip', 'clip', 'Clips', 1],
+      ['staging-demo-track-transition', 'transition', 'Transitions', 2],
+      ['staging-demo-track-audio', 'audio', 'Audio', 3],
+    ];
+    for (const t of tracks) {
+      await pool.query(
+        `INSERT INTO rr_tracks (id, owner_id, project_id, kind, label, locked, hidden, sort_order)
+         VALUES ($1, $2, $3, $4, $5, FALSE, FALSE, $6) ON CONFLICT (id) DO NOTHING`,
+        [t[0], DEMO_USER, DEMO_PROJECT, t[1], t[2], t[3]],
+      );
+    }
+    const clips = [
+      ['staging-demo-clip-text-1', 'staging-demo-track-text', null, 'Welcome to our training session', 0, 46000, 0],
+      ['staging-demo-clip-intro', 'staging-demo-track-clip', 'staging-demo-clip-text', '', 6000, 28000, 0],
+      ['staging-demo-clip-a', 'staging-demo-track-clip', 'staging-demo-clip-video', '', 34000, 54000, 1500],
+      ['staging-demo-clip-b', 'staging-demo-track-clip', 'staging-demo-clip-video', '', 58000, 80000, 0],
+      ['staging-demo-transition-1', 'staging-demo-track-transition', null, 'Cross fade', 27000, 35000, 0],
+      ['staging-demo-audio-1', 'staging-demo-track-audio', 'staging-demo-clip-audio', 'Voice: narration', 0, 100000, 0],
+    ];
+    for (const c of clips) {
+      await pool.query(
+        `INSERT INTO rr_clips (id, owner_id, project_id, track_id, media_id, label, start_ms, end_ms, trim_in_ms, simulated)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE) ON CONFLICT (id) DO NOTHING`,
+        [c[0], DEMO_USER, DEMO_PROJECT, c[1], c[2], c[3], c[4], c[5], c[6]],
+      );
+    }
+    // Two turns, with every meter field null: a seeded reply must never hand
+    // the meter a figure.
+    await pool.query(
+      `INSERT INTO rr_assistant (id, owner_id, project_id, role, body, model, spent_cents, cap_cents, created_at)
+       VALUES ($1, $2, $3, 'user', 'Draft a caption for the training session clip.', NULL, NULL, NULL, NOW() - interval '2 minutes')
+       ON CONFLICT (id) DO NOTHING`,
+      ['staging-demo-turn-1', DEMO_USER, DEMO_PROJECT],
+    );
+    await pool.query(
+      `INSERT INTO rr_assistant (id, owner_id, project_id, role, body, model, spent_cents, cap_cents, created_at)
+       VALUES ($1, $2, $3, 'assistant', 'Staging demo reply: this sentence was seeded by the app and not written by the platform''s AI.', NULL, NULL, NULL, NOW() - interval '1 minute')
+       ON CONFLICT (id) DO NOTHING`,
+      ['staging-demo-turn-2', DEMO_USER, DEMO_PROJECT],
+    );
   } catch (err) {
-    // A database outage must not stop the handheld: the screens fall back to
+    // A database outage must not stop the studio: the screens fall back to
     // their empty states.
     console.warn('staging seed failed: ' + err.message);
   }
@@ -1258,8 +957,6 @@ async function start() {
   } catch (err) {
     console.warn('schema setup failed: ' + err.message);
   }
-  await sweepSnapshots();
-  await seedBuiltInTitles();
   await seedStaging();
   const server = app.listen(port, () => console.log(`Listening on :${port}`));
   // Let Envoy retire idle upstream connections at 60s, with a 15s margin.

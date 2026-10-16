@@ -2,11 +2,12 @@
   "name": "questverse-9532f4",
   "version": "1.0.0",
   "private": true,
-  "description": "QuestVerse",
+  "description": "Homeroom Studio",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "build": "npm run build:css",
+    "test": "node --test test/*.test.mjs",
     "build:css": "tailwindcss -c tailwind.config.js -i styles/tailwind-input.css -o public/tailwind.css --minify"
   },
   "dependencies": {

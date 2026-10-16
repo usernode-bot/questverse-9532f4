@@ -1,105 +1,71 @@
-// GameWatch client app.
+// Homeroom Studio client app.
 //
 // One HTML shell, these screens off the URL hash:
-//   #/                the Arcade: the hero banner, the category pills and the
-//                     catalog rows, drawn from the titles the app holds
-//   #/manage          the manager: every title in this Arcade, and its editor
-//   #/manage/banner   the hero banner's own slide list
-//   #/terminal        a simulated handheld terminal
-//   #/ftp             a simulated read-only file tree
-//   #/os              the handheld's own OS screen and its skins
-//   #/features        snapshots and their two-month retention, and the
-//                     simulated Install UFW transcript
-//   #/settings        the panel's picture and sound, and the key mapping
-//   #/how/<id>        a title's How to Play drawer, as its own screen
-//   #/play/<id>       a title running on the LCD panel (?card=N loads a save)
-//   #/admin           the Arcade's own added titles
+//   #/studio                  the editor (also the default route)
+//   #/studio/library?q=       the editor with the library's search applied
+//   #/studio/clips/<id>       the editor with that media row selected
+//   #/studio/inspector/<tab>  the editor with that inspector tab showing
+//   #/studio/timeline         the editor, scrolled to the timeline
+//   #/studio/assistant        the editor, scrolled to the assistant widget
+//   #/studio/export           the editor with the simulated export panel open
+//   #/studio/generate/<kind>  the editor with a simulated generation panel open
+//   #/about                   what the studio is and what in it is simulated
 //
 // Everything the app keeps for a person lives on the server (server-api.js):
-// the browser holds no per-user state. Every title is a simulation, and every
-// simulated surface carries a label saying so.
+// the browser holds no per-user state. Image, avatar, video, sound and export
+// generation are simulated and say so on screen. The assistant chat is the one
+// real generation: the platform's text AI, under the reader's own grant.
 
 import { el } from './dom.js';
 import {
-  registerTitles, findTitle, licenceLine, tierLine, tierFor, progressLine,
-} from './games.js';
-import {
-  renderPlay, renderHowTo, howToDrawer, unlockAudio, tone, ACTIONS, DEFAULT_BINDINGS,
-  keyLabel, conflictsFor, actionLabel,
-} from './play.js';
-import {
-  setToken, loadWatch, saveSettings, saveBindings, listCatalogue, addCatalogueEntry,
-  removeCatalogueEntry, listTitles, saveTitle, deleteTitle, listBanner, saveBanner,
-  saveSlot, deleteSlot, saveSkin, takeSnapshot,
-  deleteSnapshot, streamInstallUfw, uploadsAvailable, uploadArt, uploadCover, ApiError,
+  setToken, loadStudio, startProject, saveProject, addMedia, removeMedia, saveMediaArt, saveTimeline,
+  askAssistant, uploadsAvailable, uploadArt, ApiError,
 } from './server-api.js';
-import { createPicture, normalizeSettings, describeSettings } from './crt.js';
-import { LCD_GROUND, LCD_INK, blit, art } from './lcd.js';
-import { renderAdminPanel } from './admin.js';
-import {
-  renderTitleForm, renderBannerEditor, managerRows, canEditTitle, canAddTitle,
-  MANAGE_NOTE, CATEGORIES,
-} from './manage.js';
+import { renderStudio, APP_NAME, TABS } from './studio.js';
+import { clampMs, movePlayhead, withTrim, nextSlot, timecodePair } from './timeline.js';
+import { GENERATION_KINDS, placeholderTitle, SIM_LINE } from './generate.js';
+import { readUsage, sendMessage, historyFor, MESSAGES } from './assistant.js';
 
 const app = document.getElementById('app');
 const token = new URLSearchParams(window.location.search).get('token') || '';
 setToken(token);
 
 /* ── The app's state ─────────────────────────────────────────────────────
- * One object, filled from GET /api/me. Every screen reads it and every write
- * goes back to the server, so two screens never disagree about the handheld.
+ * One object, filled from GET /api/studio. Every screen reads it and every
+ * write goes back to the server, so two surfaces never disagree about the
+ * project.
  */
-const watch = {
+const studio = {
   ready: false,
   failure: null,
-  titlesFailed: false,
   username: '',
   signedIn: false,
-  settings: normalizeSettings(null),
-  bindings: Object.assign({}, DEFAULT_BINDINGS),
-  saves: [],
-  titles: [],
-  slides: [],
-  catalogue: [],
-  snapshots: [],
-  skin: 'classic',
+  project: null,
+  media: [],
+  tracks: [],
+  clips: [],
   transcript: [],
-  retentionDays: 60,
+  sample: false,
+  readOnly: false,
+  readOnlyWrite: false,
+  assistant: { enabled: false, model: null, lastSpentCents: null, lastCapCents: null },
+  usage: null,
+  uploads: false,
+  selection: { mediaId: null, clipId: null },
+  playhead: 0,
+  playing: false,
+  loop: false,
+  tab: 'video',
+  query: '',
+  tool: 'select',
+  voice: { voice: 'river', tone: 'warm', language: 'en' },
+  instructions: '',
+  sheet: { kind: null, options: null },
+  chat: { busy: false, note: '', draft: '' },
+  saving: false,
+  undo: [],
+  redo: [],
 };
-
-// The categories the pill row shows, in the order the loaded titles file
-// themselves, so a title under a new word adds a pill. "All" always leads.
-function catalogCategories() {
-  const out = ['All'];
-  for (const title of watch.titles) {
-    if (title.category && !out.includes(title.category)) out.push(title.category);
-  }
-  for (const word of CATEGORIES) if (!out.includes(word)) out.push(word);
-  return out;
-}
-
-const SIM_NOTE = 'GameWatch is a simulated handheld. Every panel, readout, terminal line and file on it '
-  + 'is generated by this app, and nothing here is real hardware.';
-const CATALOGUE_NOTE = 'Catalogued, not executed. An added title is a name and a cover for this Arcade; '
-  + 'GameWatch never runs it.';
-
-const MODULES = [
-  { id: 'arcade', title: 'Arcade', blurb: 'The titles on this handheld, and the covers for them.', hash: '#/' },
-  { id: 'terminal', title: 'Terminal', blurb: 'A simulated handheld terminal. Try HELP or UFW.', hash: '#/terminal' },
-  { id: 'ftp', title: 'FTP', blurb: 'A read-only view of what this handheld holds.', hash: '#/ftp' },
-  { id: 'os', title: 'OS', blurb: 'The handheld\'s own OS screen and its skins.', hash: '#/os' },
-  { id: 'features', title: 'Features', blurb: 'Snapshots, their two-month retention, and Install UFW.', hash: '#/features' },
-  { id: 'settings', title: 'Settings', blurb: 'The panel\'s picture and sound, and the key mapping.', hash: '#/settings' },
-];
-
-const BOOT_LINES = [
-  'GAMEWATCH BIOS v2.11',
-  'LCD panel .... 320 x 200 segments, OK',
-  'Tone generator ..... 4 shapes, OK',
-  'Memory Card ....... 4 cards per title',
-  'Cataloguing the Arcade titles',
-  'GameWatch ready. This handheld is simulated: nothing here is real hardware.',
-];
 
 /* ── Small helpers ─────────────────────────────────────────────────────── */
 
@@ -120,41 +86,10 @@ function toast(message) {
 
 function apiMessage(err, fallback) {
   if (err instanceof ApiError) {
-    if (err.status === 401) return 'Open GameWatch inside Homeroom to change anything here.';
+    if (err.status === 401) return 'Sign in to Homeroom to change anything in the studio.';
     return err.message || fallback;
   }
   return fallback;
-}
-
-// Any time the app needs to know "now" it reads it through the platform
-// (usernode.now()), so a preview opened at a chosen moment shows that moment.
-// The app reasons in UTC.
-function nowDate() {
-  try {
-    if (window.usernode && typeof window.usernode.now === 'function') return window.usernode.now();
-  } catch { /* fall back to the device clock */ }
-  return new Date();
-}
-
-function clockText() {
-  const d = nowDate();
-  const pad = (n) => (n < 10 ? '0' + n : String(n));
-  return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ' UTC';
-}
-
-let clockTimer = null;
-function startClock() {
-  if (clockTimer) return;
-  clockTimer = setInterval(() => {
-    const text = clockText();
-    for (const node of document.querySelectorAll('[data-clock]')) node.textContent = text;
-  }, 20000);
-}
-
-function formatWhen(value) {
-  const d = value ? new Date(value) : null;
-  if (!d || Number.isNaN(d.getTime())) return 'earlier';
-  return d.toISOString().slice(0, 10);
 }
 
 function go(hash) {
@@ -170,1705 +105,575 @@ function parseHash() {
   return { parts: path.split('/').filter(Boolean), params: new URLSearchParams(query) };
 }
 
-/* ── The shell: bezel, panel, controls ─────────────────────────────────── */
-
-function shell(content, opts) {
-  const options = opts || {};
-  const active = options.moduleId || '';
-  const nav = navBar(active);
-  return el('div', { class: 'rig', 'data-rig': '' },
-    el('div', { class: 'gw-grain', 'aria-hidden': 'true' }),
-    el('div', { class: 'rig-bezel' },
-      el('div', { class: 'rig-glass', 'data-glass': '' },
-        el('div', { class: 'rig-scanlines', 'aria-hidden': 'true' }),
-        el('div', { class: 'rig-vignette', 'aria-hidden': 'true' }),
-        headerBar(options.label || 'Arcade', nav),
-        el('div', { class: 'relative flex flex-1 flex-col gap-4', 'data-screen': '' }, content),
-      ),
-      controlsBar(options),
-    ),
-  );
-}
-
-// The header: the wordmark, the manager link and the menu button. The menu
-// button shows and hides the module row, which is on by default because the six
-// modules are the app's main navigation.
-let modulesShown = true;
-
-function headerBar(label, nav) {
-  const holder = el('div', { 'data-module-nav-holder': '' }, modulesShown ? nav : null);
-  const menu = el('button', {
-    class: 'gw-menu-button', type: 'button', 'data-header-menu': '', 'aria-expanded': modulesShown ? 'true' : 'false',
-    'aria-label': 'Show or hide the modules',
-    onclick: () => {
-      unlockAudio();
-      tone('tick');
-      modulesShown = !modulesShown;
-      holder.replaceChildren();
-      if (modulesShown) holder.append(nav);
-      menu.setAttribute('aria-expanded', modulesShown ? 'true' : 'false');
-    },
-  }, '\u2630');
-  return el('div', { class: 'flex flex-col gap-2' },
-    el('div', { class: 'gw-header' },
-      el('div', { class: 'flex flex-wrap items-center gap-3' },
-        menu,
-        el('span', { class: 'gw-wordmark', text: 'GAMEWATCH' }),
-        el('span', { class: 'text-small text-muted', 'data-header-label': '', text: label }),
-      ),
-      el('div', { class: 'flex flex-wrap items-center gap-2' },
-        simBadge('Simulated handheld'),
-        el('button', {
-          class: 'btn-secondary', type: 'button', 'data-manage-link-header': '', text: 'Manage titles',
-          onclick: () => { unlockAudio(); tone('tick'); go('#/manage'); },
-        }),
-      ),
-    ),
-    holder,
-  );
-}
-
-function navBar(active) {
-  return el('nav', { class: 'rig-nav', 'data-module-nav': '', 'aria-label': 'GameWatch modules' },
-    MODULES.map((m) => el('button', {
-      class: 'rig-nav-item' + (m.id === active ? ' rig-nav-item-on' : ''), type: 'button',
-      'data-module': m.id, 'aria-current': m.id === active ? 'page' : null, text: m.title,
-      onclick: () => { unlockAudio(); tone('tick'); go(m.hash); },
-    })),
-    el('span', { class: 'rig-print ml-auto', 'data-clock': '', text: clockText() }),
-  );
-}
-
-function controlsBar(options) {
-  const label = options.windowLabel || 'Arcade';
-  return el('div', { class: 'rig-controls' },
-    el('span', { class: 'btn-secondary', 'data-open-window': options.moduleId || 'arcade', text: label }),
-    el('span', { class: 'rig-sim', text: options.sim || 'Simulated handheld' }),
-    el('span', { class: 'text-small text-muted ml-auto', text: 'Signed in as ' + (watch.username || 'a guest') + '.' }),
-  );
-}
-
-function readoutBlock(lines, extra) {
-  return el('div', Object.assign({ class: 'rig-readout' }, extra || {}),
-    lines.map((line) => el('div', { class: 'rig-print', text: line })),
-  );
-}
-
-function simBadge(text) {
-  return el('span', { class: 'rig-sim', text: text || 'Simulated handheld' });
-}
-
-function emptyState(text) {
-  return el('p', { class: 'state-empty text-body text-muted', text });
-}
-
-function windowBody(module, body, actions, attrs) {
-  return el('section', Object.assign({ class: 'rig-window', 'data-window': module.id }, attrs || {}),
-    el('div', { class: 'rig-window-bar' },
-      el('strong', { class: 'text-body', text: module.title }),
-      el('div', { class: 'flex flex-wrap gap-2' },
-        actions || null,
-        simBadge(),
-      ),
-    ),
-    el('div', { class: 'rig-window-body' }, body),
-  );
-}
-
-function moduleById(id) {
-  return MODULES.find((m) => m.id === id) || MODULES[0];
-}
-
-/* ── The Arcade ────────────────────────────────────────────────────────── */
-
-// The Arcade is drawn from the titles the app holds (watch.titles), so an edit
-// in the manager shows here and a fresh database still renders the collection.
-
-// A title's thumbnail: its own uploaded picture when it has one, otherwise its
-// drawn cover, painted from segment art onto a small canvas. The canvas is
-// drawn at the art's natural size and scaled by CSS, so a segment stays a
-// crisp block at any size.
-function coverCanvas(title, opts) {
-  const options = opts || {};
-  const piece = artPoints(title);
-  const canvas = el('canvas', { class: options.class || 'gw-thumb-art' });
-  canvas.width = piece.w;
-  canvas.height = piece.h;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = LCD_GROUND;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  blit(ctx, piece, 0, 0, { '#': LCD_INK, o: LCD_INK, '+': LCD_INK });
-  return canvas;
-}
-
-// A title's drawn cover, as a piece. A row that carries no art (an added title)
-// still gets a plain plate, so nothing has to special-case a missing cover.
-let DEFAULT_PIECE = null;
-function artPoints(title) {
-  const rows = Array.isArray(title.coverArt) && title.coverArt.length ? title.coverArt : fallbackCoverRows();
-  return art(rows);
-}
-function fallbackCoverRows() {
-  if (!DEFAULT_PIECE) {
-    DEFAULT_PIECE = [
-      '..........................',
-      '..####################....',
-      '..#..................#....',
-      '..#....##....##......#....',
-      '..#...####..####.....#....',
-      '..#....##....##......#....',
-      '..#..................#....',
-      '..#...####..####.....#....',
-      '..#...#.......#......#....',
-      '..#...##########.....#....',
-      '..#...#.......#......#....',
-      '..#...####..####.....#....',
-      '..####################....',
-      '..........................',
-    ];
+// Takes what the server answered into the state, keeping the selection and
+// the playhead where they were when they still point at something.
+function applyStudio(loaded) {
+  studio.username = loaded.username || '';
+  studio.signedIn = !!loaded.signedIn;
+  studio.project = loaded.project;
+  studio.media = loaded.media;
+  studio.tracks = loaded.tracks;
+  studio.clips = loaded.clips;
+  studio.transcript = loaded.transcript;
+  studio.sample = !!loaded.sample;
+  studio.readOnly = !!loaded.readOnly;
+  studio.readOnlyWrite = !studio.signedIn;
+  studio.assistant = loaded.assistant || studio.assistant;
+  const length = Number(studio.project && studio.project.durationMs) || 0;
+  studio.playhead = clampMs(studio.playhead, length);
+  if (!studio.media.some((m) => m.id === studio.selection.mediaId)) {
+    studio.selection.mediaId = studio.media.length ? studio.media[0].id : null;
   }
-  return DEFAULT_PIECE;
-}
-
-// A title's picture: an uploaded thumbnail when it has one, otherwise the
-// drawn cover on a canvas. This is what a person taps to play.
-function thumbnail(title) {
-  if (title.thumbnailUrl) {
-    return el('img', {
-      class: 'gw-thumb-art', src: title.thumbnailUrl, alt: title.title + ' thumbnail',
-      'data-cat-thumb': title.id,
-    });
+  if (!studio.clips.some((c) => c.id === studio.selection.clipId)) {
+    const firstSelected = studio.clips.find((c) => c.mediaId === studio.selection.mediaId && c.trimInMs) || null;
+    studio.selection.clipId = firstSelected ? firstSelected.id : null;
   }
-  const canvas = coverCanvas(title);
-  canvas.setAttribute('data-cat-thumb', title.id);
-  return canvas;
 }
 
-let arcadeFilter = 'All';
-
-function arcadeReadout() {
-  const all = watch.titles;
-  const builtIn = all.filter((t) => t.builtIn).length;
-  const added = all.length - builtIn;
-  const saved = watch.saves.length;
-  return [
-    'TITLES: ' + builtIn + ' built in | ' + added + (added === 1 ? ' added title' : ' added titles'),
-    'MEMORY CARD: ' + saved + (saved === 1 ? ' run saved' : ' runs saved') + ' of ' + (all.length * 4),
-  ].concat(describeSettings(watch.settings));
+async function refreshUsage() {
+  studio.usage = await readUsage(studio.assistant, window.usernode);
 }
 
-// The hero banner: one slide at a time, sliding on its own, with an arrow at
-// each end and the amber glass badge. A slide shows a title's banner picture
-// (its own uploaded art, or the drawn cover), its name and the badge. The list
-// is the person's own (watch.slides), falling back to the titles themselves.
-const HERO_INTERVAL_MS = 5000;
-let heroTimer = null;
-let heroIndex = 0;
-let heroPaused = false;
-
-function slideList() {
-  const byId = new Map(watch.titles.map((t) => [t.id, t]));
-  const chosen = (watch.slides || []).map((s) => {
-    const title = byId.get(s.titleId);
-    if (!title) return null;
-    return { title, artUrl: s.artUrl || null };
-  }).filter(Boolean);
-  if (chosen.length) return chosen;
-  return watch.titles.slice(0, 8).map((title) => ({ title, artUrl: null }));
+// After a reply, the meter reads what the reply carried without another
+// bridge call: the headers are the platform's own figures.
+function takeMeter(meter) {
+  if (!meter) return;
+  if (meter.spentCents != null) studio.assistant.lastSpentCents = meter.spentCents;
+  if (meter.capCents != null) studio.assistant.lastCapCents = meter.capCents;
 }
 
-function stopHero() {
-  if (heroTimer) { clearInterval(heroTimer); heroTimer = null; }
+/* ── Undo and redo: the last two local edits ───────────────────────────── */
+
+function snapshot() {
+  return {
+    project: Object.assign({}, studio.project),
+    tracks: studio.tracks.map((t) => Object.assign({}, t)),
+    clips: studio.clips.map((c) => Object.assign({}, c)),
+  };
 }
 
-function heroBanner() {
-  const slides = slideList();
-  if (!slides.length) return emptyState('No titles yet. Add one from the manager and it appears here.');
+function remember() {
+  studio.undo.push(snapshot());
+  while (studio.undo.length > 2) studio.undo.shift();
+  studio.redo = [];
+}
 
-  const figure = el('div', { class: 'gw-hero' });
-  const dots = el('div', { class: 'gw-hero-dots', 'data-hero-dots': '' });
-
-  function wrap() {
-    const max = slides.length;
-    heroIndex = ((heroIndex % max) + max) % max;
-    return heroIndex;
-  }
-
-  function paint() {
-    const at = wrap();
-    const slide = slides[at];
-    figure.replaceChildren(
-      el('div', { class: 'gw-hero-art' },
-        slide.artUrl
-          ? el('img', { class: 'gw-hero-img', src: slide.artUrl, alt: slide.title.title + ' banner art', 'data-hero-art': slide.title.id })
-          : heroArtCanvas(slide.title),
-      ),
-      el('button', {
-        class: 'gw-hero-arrow gw-hero-arrow-prev', type: 'button', 'data-hero-prev': '',
-        'aria-label': 'Slide to the previous title',
-        onclick: () => { unlockAudio(); tone('tick'); step(-1); },
-      }, '\u2039'),
-      el('button', {
-        class: 'gw-hero-arrow gw-hero-arrow-next', type: 'button', 'data-hero-next': '',
-        'aria-label': 'Slide to the next title',
-        onclick: () => { unlockAudio(); tone('tick'); step(1); },
-      }, '\u203a'),
-      el('div', { class: 'gw-hero-body' },
-        el('h3', { class: 'gw-hero-title', 'data-hero-title': slide.title.id, text: slide.title.title }),
-        el('p', { class: 'gw-hero-line', text: slide.title.tagline || slide.title.summary || '' }),
-        el('span', { class: 'gw-hero-badge', 'data-hero-badge': '',
-          text: 'PLATFORM: GAMEWATCH' }),
-      ),
-      el('div', { class: 'gw-hero-actions' },
-        el('button', {
-          class: 'btn-primary', type: 'button', 'data-hero-play': slide.title.id, text: 'Play',
-          onclick: () => startTitle(slide.title.id, null),
-        }),
-        el('button', {
-          class: 'btn-secondary', type: 'button', 'data-hero-howto': slide.title.id, text: 'How to play',
-          onclick: () => { unlockAudio(); tone('tick'); go('#/how/' + slide.title.id); },
-        }),
-        el('button', {
-          class: 'btn-secondary', type: 'button', 'data-hero-edit': '', text: 'Edit this banner',
-          onclick: () => { unlockAudio(); tone('tick'); go('#/manage/banner'); },
-        }),
-      ),
-    );
-    dots.replaceChildren(...slides.map((s, i) => el('button', {
-      class: 'gw-hero-dot' + (i === at ? ' gw-hero-dot-on' : ''), type: 'button',
-      'data-hero-dot': s.title.id, 'aria-label': 'Show ' + s.title.title,
-      onclick: () => { unlockAudio(); tone('tick'); heroIndex = i; heroPaused = true; paintPause(); paint(); },
-    })));
-  }
-
-  function step(by) {
-    heroIndex = wrap() + by;
-    heroPaused = true;
-    paintPause();
-    paint();
-  }
-
-  const pauseButton = el('button', {
-    class: 'btn-secondary', type: 'button', 'data-hero-pause': '',
-    onclick: () => { unlockAudio(); tone('tick'); heroPaused = !heroPaused; paintPause(); schedule(); },
+async function restore(snap) {
+  const { project, tracks, clips } = snap;
+  const patch = {
+    aspect: project.aspect, resolution: project.resolution, durationMs: project.durationMs,
+    cameraPreset: project.cameraPreset, motionPreset: project.motionPreset,
+    motionRealism: project.motionRealism, volume: project.volume, name: project.name,
+  };
+  await write(async () => {
+    const own = await ensureOwn();
+    await saveProject(own.project.id, patch);
+    return saveTimeline(own.project.id, tracksPayload(tracks, clips));
   });
-  function paintPause() { pauseButton.textContent = heroPaused ? 'The banner slides: paused' : 'The banner slides'; }
+}
 
-  function schedule() {
-    stopHero();
-    if (heroPaused || slides.length < 2 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    heroTimer = setInterval(() => { heroIndex = wrap() + 1; paint(); }, HERO_INTERVAL_MS);
+/* ── Writes ────────────────────────────────────────────────────────────── */
+
+// Every write lands on the person's own project. On the sample, the first
+// write starts their own copy, and the ids below are the copy's.
+async function ensureOwn() {
+  if (studio.signedIn && studio.sample) {
+    const loaded = await startProject();
+    applyStudio(loaded);
+    return loaded;
   }
-
-  paintPause();
-  paint();
-  schedule();
-
-  return el('section', { class: 'gw-hero-wrap', 'data-hero': '' },
-    el('div', { class: 'flex flex-wrap items-center justify-between gap-2' },
-      el('h3', { class: 'text-heading', text: 'The banner slides' }),
-      el('div', { class: 'flex flex-wrap items-center gap-2' },
-        simBadge('Simulated banner'),
-        pauseButton,
-      ),
-    ),
-    figure,
-    dots,
-  );
+  return studio;
 }
 
-// A banner slide with no uploaded picture: the title's drawn cover, large.
-function heroArtCanvas(title) {
-  const wrap = el('span', { class: 'gw-hero-drawn' });
-  wrap.append(coverCanvas(title, { class: 'gw-hero-art-canvas' }));
-  wrap.append(el('span', { class: 'rig-sim absolute bottom-2 left-2', text: 'Simulated cover' }));
-  return wrap;
-}
-
-// The category pills: the Arcade's filter. The one that is filtering says so.
-function filterPills() {
-  const tags = catalogCategories();
-  const shown = visibleTitles();
-  return el('div', { class: 'flex flex-col gap-2', 'data-filters': '' },
-    el('div', { class: 'flex flex-wrap gap-2', 'data-catalog-pills': '' },
-      tags.map((tag) => el('button', {
-        class: 'gw-pill' + (tag === arcadeFilter ? ' gw-pill-on' : ''), type: 'button',
-        'data-catalog-pill': tag, 'aria-pressed': tag === arcadeFilter ? 'true' : 'false', text: tag,
-        // The filter lives in the address, so a filtered catalogue can be
-        // linked to and comes back the same on a reload. The pill's own click
-        // is just the address changing; renderArcade reads it back.
-        onclick: () => { unlockAudio(); tone('tick'); go(pillHash(tag)); },
-      })),
-      el('button', {
-        class: 'gw-pill gw-pill-add', type: 'button', 'data-add-game': '', text: '+ Add Game',
-        onclick: () => { unlockAudio(); tone('tick'); go('#/manage?new=1'); },
-      }),
-    ),
-    el('p', { class: 'text-small text-muted', 'data-filter-count': '',
-      text: shown.length + (shown.length === 1 ? ' title matches ' : ' titles match ') + arcadeFilter + '.' }),
-  );
-}
-
-function visibleTitles() {
-  if (arcadeFilter === 'All') return watch.titles;
-  return watch.titles.filter((t) => t.category === arcadeFilter);
-}
-
-// One catalog row: the LCD thumbnail, its boxed genre tag, the uppercase title,
-// its sub-genre line, the platform line and a How to Play link.
-function gameRow(title) {
-  const saved = watch.saves.filter((s) => s.gameId === title.id);
-  const best = saved.reduce((top, s) => Math.max(top, Number(s.highScore) || 0), 0);
-  const playable = canPlay(title);
-  return el('li', {
-    class: 'gw-cat-row', 'data-title': title.id, 'data-cat-row': title.id, 'data-game-row': '',
-  },
-    el('div', { class: 'gw-thumb', 'data-cat-thumb-wrap': title.id },
-      thumbnail(title),
-      el('span', { class: 'rig-sim', text: 'Simulated cover' }),
-    ),
-    el('div', { class: 'flex min-w-0 flex-col gap-1' },
-      el('div', { class: 'flex flex-wrap items-center gap-2' },
-        el('h3', { class: 'gw-cat-title', 'data-cat-title': title.id, text: String(title.title).toUpperCase() }),
-        el('span', { class: 'gw-cat-tag', 'data-cat-tag': title.id, text: title.genreBox || title.category }),
-      ),
-      el('p', { class: 'gw-cat-detail', text: (title.genres || []).join(' | ') }),
-      el('p', { class: 'gw-cat-detail', text: title.tagline }),
-      el('p', { class: 'gw-platform', 'data-cat-platform': title.id, text: 'PLATFORM: GAMEWATCH' }),
-      best > 0
-        ? el('p', { class: 'rig-print', 'data-title-best': title.id,
-          text: 'HIGH SCORE ' + best + ' | ' + tierFor(title, best).name.toUpperCase()
-            + ' | ' + saved.length + (saved.length === 1 ? ' run saved' : ' runs saved') })
-        : el('p', { class: 'text-small text-muted', text: 'Nothing on the Memory Card yet.' }),
-      el('div', { class: 'flex flex-wrap gap-2' },
-        playable ? el('button', {
-          class: 'btn-primary', type: 'button', 'data-run': title.id, text: 'Play',
-          onclick: () => startTitle(title.id, null),
-        }) : el('span', { class: 'text-small text-muted', 'data-not-playable': title.id,
-          text: 'Catalogued, not run: an added title has no rules on this handheld.' }),
-        el('a', {
-          class: 'gw-howto btn-secondary', href: '#/how/' + title.id, 'data-how-to': title.id,
-          text: 'How to Play',
-          onclick: () => { unlockAudio(); tone('tick'); },
-        }),
-      ),
-      howToDrawer(title),
-    ),
-  );
-}
-
-// A title has a panel and rules only when its id has a code entry, which is
-// every built-in and no added title.
-function canPlay(title) {
-  return !!title.draw;
-}
-
-// The Arcade's filter, as an address: 'All' is the plain Arcade route, any
-// other pill its own query value. Keeping it in the address is what lets a
-// filtered catalogue be linked to, and what lets a check assert the filter
-// narrows the list rather than only that the page loads.
-function pillHash(tag) {
-  return !tag || tag === 'All' ? '#/' : '#/?pill=' + encodeURIComponent(tag);
-}
-
-// Read the filter back from the address. A value the loaded titles do not
-// carry is kept as it is, so a stale link shows the app's own empty state
-// rather than silently answering a different genre.
-function readArcadeFilter(params) {
-  if (!params) return;
-  const pill = params.get('pill');
-  arcadeFilter = pill ? pill : 'All';
-}
-
-function renderArcade(params) {
-  const module = moduleById('arcade');
-  readArcadeFilter(params);
-  const shown = visibleTitles();
-  const failed = watch.titlesFailed;
-  return windowBody(module, [
-    el('p', { class: 'text-body text-muted', text: 'Every title below is on this handheld. Slide the banner, filter by a broad genre, and pick one.' }),
-    heroBanner(),
-    filterPills(),
-    el('section', {
-      class: 'flex flex-col gap-2', 'data-gallery': '',
-      // The filter the list is showing, and how many titles it left, stamped
-      // on the list itself so a check can assert the pill narrowed it rather
-      // than only that the Arcade loaded.
-      'data-filter': arcadeFilter, 'data-filter-count': String(shown.length),
-    },
-      el('h3', { class: 'text-heading', text: 'Titles in this Arcade' }),
-      failed
-        ? el('div', { class: 'state-error', 'data-titles-empty': '' },
-          el('p', { class: 'text-body text-muted', text: 'GameWatch could not read the titles in this Arcade. '
-            + 'They are still stored; the manager is where they live.' }),
-          el('button', {
-            class: 'btn-primary', type: 'button', text: 'Try again',
-            onclick: async () => { await loadIntoState(); render(); },
-          }),
-        )
-        : (shown.length
-          ? el('ul', { class: 'gw-cat-list', 'data-game-list': '' }, shown.map(gameRow))
-          : emptyState('No title is filed under that genre. Pick another pill, or add a title.')),
-    ),
-    el('footer', { class: 'gw-add-foot', 'data-add-game-foot': '' },
-      el('p', { class: 'text-body text-muted', text: 'Add a title of your own, or edit any title here.' }),
-      el('button', {
-        class: 'btn-primary', type: 'button', 'data-add-game-foot-button': '', text: '+ Add Game',
-        onclick: () => { unlockAudio(); tone('tick'); go('#/manage?new=1'); },
-      }),
-      el('button', {
-        class: 'btn-secondary', type: 'button', 'data-manage-link': '', text: 'Manage titles',
-        onclick: () => { unlockAudio(); tone('tick'); go('#/manage'); },
-      }),
-    ),
-    readoutBlock(arcadeReadout(), { 'data-readout': '' }),
-  ], el('button', {
-    class: 'btn-secondary', type: 'button', 'data-go-admin': '', text: 'Titles you added',
-    onclick: () => { unlockAudio(); tone('tick'); go('#/admin'); },
+function tracksPayload(tracks, clips) {
+  return tracks.map((t) => ({
+    id: t.id, kind: t.kind, label: t.label, locked: !!t.locked, hidden: !!t.hidden,
+    clips: clips.filter((c) => c.trackId === t.id).map((c) => ({
+      id: c.id, mediaId: c.mediaId, label: c.label, startMs: c.startMs, endMs: c.endMs, trimInMs: c.trimInMs,
+    })),
   }));
 }
 
-function startTitle(id, card) {
-  unlockAudio();
-  tone('confirm');
-  const hash = '#/play/' + id + (card ? '?card=' + card : '');
-  if (window.location.hash === hash) render();
-  else window.location.hash = hash;
-}
-
-/* ── The Terminal ──────────────────────────────────────────────────────── */
-
-const TERMINAL_BANNER = [
-  'GameWatch terminal, simulated. Nothing here is a real operating system.',
-  'Type HELP for the commands this handheld answers to.',
-];
-
-const TERMINAL_HELP = [
-  'HELP              the commands this terminal answers to',
-  'TITLES            the titles on this handheld',
-  'RUN <title>       start a title that has rules',
-  'CARDS [title]     what the Memory Card holds',
-  'SYSINFO           the handheld\'s version and its panel settings',
-  'SKIN [name]       the OS skins this handheld offers',
-  'COVERS            where a title\'s cover came from',
-  'UFW               print the simulated firewall install transcript',
-  'CLS               clear this screen',
-];
-
-// The Terminal is a simulation and says so, on every transcript it prints.
-const TERMINAL_SIM = 'Simulated terminal: no line below was produced by real hardware.';
-
-function terminalReply(command) {
-  const raw = String(command || '').trim();
-  if (!raw) return [];
-  const echo = 'gamewatch> ' + raw;
-  const upper = raw.toUpperCase();
-  if (upper === 'HELP') return [echo].concat(TERMINAL_HELP);
-  if (upper === 'CLS') return [];
-  if (upper === 'SYSINFO') {
-    return [echo, 'GameWatch 2.11 | simulated handheld terminal'].concat(describeSettings(watch.settings));
-  }
-  if (upper === 'TITLES') {
-    return [echo]
-      .concat(watch.titles.map((t) => '  ' + t.id.padEnd(20, ' ') + t.title.padEnd(20, ' ')
-        + t.genreBox + (canPlay(t) ? '' : ' (catalogued, not run)')));
-  }
-  if (upper === 'COVERS') {
-    const builtIn = watch.titles.filter((t) => t.builtIn);
-    const uploaded = watch.titles.filter((t) => t.thumbnailUrl).length;
-    return [echo,
-      builtIn.length + ' built-in titles, and each one\'s cover is drawn in segments by this app'
-        + (uploaded ? ', unless a picture was uploaded for it.' : '.'),
-      'Covers a person uploaded: ' + uploaded + '. A title with none shows its drawn cover.',
-    ];
-  }
-  if (upper === 'SKIN') {
-    return [echo, 'Skins: classic, silver, night. This handheld is set to ' + watch.skin + '.'];
-  }
-  if (upper.startsWith('CARDS')) {
-    const wanted = raw.slice(5).trim().toLowerCase();
-    const title = wanted
-      ? watch.titles.find((t) => t.id === wanted || t.title.toLowerCase().includes(wanted))
-      : null;
-    if (wanted && !title) return [echo, 'No title here matches ' + wanted + '.'];
-    const list = title ? [title] : watch.titles;
-    return [echo].concat(list.map((t) => {
-      const saved = watch.saves.filter((s) => s.gameId === t.id);
-      const best = saved.reduce((top, s) => Math.max(top, Number(s.highScore) || 0), 0);
-      return '  ' + t.id.padEnd(20, ' ') + saved.length + ' card(s)'
-        + (best ? ', best ' + best : '') + ' | ' + tierLine(t);
-    }));
-  }
-  if (upper.startsWith('RUN')) {
-    const wanted = raw.slice(3).trim();
-    if (!wanted) {
-      return [echo, 'RUN needs a title. On this handheld:']
-        .concat(watch.titles.filter(canPlay).map((t) => '  RUN ' + t.title));
-    }
-    const needle = wanted.toLowerCase();
-    const hit = watch.titles.find((t) => canPlay(t) && (t.id === needle || t.title.toLowerCase() === needle))
-      || watch.titles.find((t) => canPlay(t) && t.title.toLowerCase().includes(needle));
-    if (hit) return [echo, 'Starting ' + hit.title + ' ...'];
-    return [echo, 'Bad command or title name.'];
-  }
-  return [echo, 'Bad command. Type HELP.'];
-}
-
-// The transcript the Terminal prints for Install UFW. It is the app's own
-// canned log in every environment: it installs nothing, runs no shell, and
-// the streamed route in the app is what streams it.
-function ufwTranscript() {
-  return [
-    TERMINAL_SIM,
-    'gamewatch> ufw --version',
-    'ufw 0.36.2 (simulated: this line was not produced by a real ufw)',
-    'gamewatch> ufw default deny incoming',
-    'Default incoming policy changed to deny (simulated, nothing was changed)',
-    'gamewatch> ufw default allow outgoing',
-    'Default outgoing policy changed to allow (simulated, nothing was changed)',
-    'gamewatch> ufw allow 443/tcp',
-    'Rule added: allow 443/tcp (simulated)',
-    'gamewatch> ufw --force enable',
-    'Firewall is active and enabled on system startup (simulated)',
-    'gamewatch> done. 0 packages installed, 0 hosts contacted.',
-  ];
-}
-
-let terminalLog = TERMINAL_BANNER.slice();
-
-function renderTerminal() {
-  const module = moduleById('terminal');
-  const log = el('div', { class: 'rig-prompt-log', 'data-terminal-log': '' },
-    terminalLog.map((line) => el('div', { class: 'rig-print', text: line })),
-  );
-  const input = el('input', {
-    class: 'rig-prompt-input', id: 'terminal-input', 'data-terminal-input': '', type: 'text',
-    placeholder: 'Type HELP, TITLES, RUN and a title, CARDS, SYSINFO, UFW', autocomplete: 'off',
-    spellcheck: 'false', 'aria-label': 'Simulated terminal',
-  });
-  const form = el('form', { onsubmit: (event) => { event.preventDefault(); submitTerminal(input.value); } }, input);
-
-  setTimeout(() => {
-    log.scrollTop = log.scrollHeight;
-    try { input.focus({ preventScroll: true }); } catch { /* focus is optional */ }
-  }, 0);
-
-  return windowBody(module, [
-    el('div', { class: 'flex flex-wrap items-center gap-2' },
-      simBadge('Simulated terminal'),
-      el('span', { class: 'text-small text-muted', text: TERMINAL_SIM }),
-    ),
-    el('div', { class: 'flex flex-col gap-2', 'data-terminal-commands': '' },
-      el('h3', { class: 'text-heading', text: 'What this terminal answers to' }),
-      readoutBlock(TERMINAL_HELP, { 'data-terminal-help': '' }),
-    ),
-    el('div', { class: 'rig-prompt', 'data-terminal': '' },
-      log,
-      el('div', { class: 'flex flex-col gap-1' },
-        el('label', { class: 'text-small text-muted', for: 'terminal-input', text: 'Command' }),
-        form,
-      ),
-    ),
-    el('div', { class: 'flex flex-wrap gap-2' },
-      el('button', {
-        class: 'btn-secondary', type: 'button', 'data-terminal-ufw': '', text: 'Print the UFW install transcript',
-        onclick: () => { unlockAudio(); tone('tick'); runUfwInTerminal(); },
-      }),
-      el('button', {
-        class: 'btn-secondary', type: 'button', 'data-terminal-clear': '', text: 'Clear the terminal',
-        onclick: () => { unlockAudio(); tone('tick'); terminalLog = TERMINAL_BANNER.slice(); render(); },
-      }),
-    ),
-    el('p', { class: 'text-small text-muted', text: 'Try HELP, TITLES, CARDS, SYSINFO, SKIN, COVERS, RUN followed by a title, or UFW.' }),
-  ], null, { 'data-terminal-window': '' });
-}
-
-function submitTerminal(value) {
-  unlockAudio();
-  tone('confirm');
-  const raw = String(value || '').trim();
-  if (!raw) return;
-  const upper = raw.toUpperCase();
-  if (upper === 'CLS' || upper === 'CLEAR') {
-    terminalLog = TERMINAL_BANNER.slice();
+async function write(fn, okMessage) {
+  if (!studio.signedIn) { toast('Sign in to Homeroom to change the project.'); return false; }
+  studio.saving = true;
+  try {
+    const loaded = await fn();
+    if (loaded) applyStudio(loaded);
+    if (okMessage) toast(okMessage);
+    return true;
+  } catch (err) {
+    toast(apiMessage(err, 'The studio could not save that.'));
+    return false;
+  } finally {
+    studio.saving = false;
     render();
+  }
+}
+
+let projectTimer = null;
+let projectPatch = {};
+
+// The inspector's controls write the project row, debounced so a slider drag
+// is one write. The state updates at once so the readout keeps up.
+function changeProject(patch) {
+  if (!studio.project) return;
+  if (!Object.keys(projectPatch).length) remember();
+  Object.assign(projectPatch, patch);
+  Object.assign(studio.project, patch);
+  if (patch.durationMs != null) studio.playhead = clampMs(studio.playhead, patch.durationMs);
+  clearTimeout(projectTimer);
+  projectTimer = setTimeout(async () => {
+    const pending = projectPatch;
+    projectPatch = {};
+    await write(async () => {
+      const own = await ensureOwn();
+      return saveProject(own.project.id, pending);
+    });
+  }, 600);
+}
+
+async function toggleTrack(trackId, flag) {
+  const tracks = studio.tracks.map((t) => (t.id === trackId ? Object.assign({}, t, { [flag]: !t[flag] }) : t));
+  remember();
+  await write(async () => {
+    const own = await ensureOwn();
+    const mapped = own === studio ? tracks : own.tracks.map((t, i) => Object.assign({}, t, { [flag]: tracks[i] ? tracks[i][flag] : t[flag] }));
+    return saveTimeline(own.project.id, tracksPayload(mapped, own.clips));
+  });
+}
+
+async function addPlaceholder(kindId, options) {
+  const kind = GENERATION_KINDS[kindId];
+  if (!kind) return;
+  remember();
+  const ok = await write(async () => {
+    const own = await ensureOwn();
+    const added = await addMedia({
+      projectId: own.project.id, title: placeholderTitle(kindId, options), kind: kind.mediaKind, durationMs: kind.lengthMs,
+    });
+    const lane = added.tracks.find((t) => t.kind === kind.lane) || added.tracks.find((t) => t.kind === 'clip');
+    if (!lane || !added.mediaId) return added;
+    const laneClips = added.clips.filter((c) => c.trackId === lane.id);
+    const slot = nextSlot(laneClips, studio.playhead, kind.lengthMs, added.project.durationMs);
+    if (!slot) return added;
+    const clips = added.clips.concat([{
+      id: 'new-' + Date.now(), trackId: lane.id, mediaId: added.mediaId, label: placeholderTitle(kindId, options),
+      startMs: slot.startMs, endMs: slot.endMs, trimInMs: 0,
+    }]);
+    const saved = await saveTimeline(added.project.id, tracksPayload(added.tracks, clips));
+    studio.selection.mediaId = added.mediaId;
+    return saved;
+  }, 'Placeholder added. Nothing was generated.');
+  if (ok) go('#/studio');
+}
+
+async function removeMediaRow(id) {
+  remember();
+  await write(() => removeMedia(id), 'Removed from the library.');
+}
+
+// The Text tool: a text overlay block at the playhead on the text lane.
+async function addTextBlock() {
+  const lane = studio.tracks.find((t) => t.kind === 'text');
+  if (!lane) { toast('This project has no text lane.'); return; }
+  const words = window.prompt('The words the text overlay shows');
+  if (!words || !words.trim()) return;
+  remember();
+  await write(async () => {
+    const own = await ensureOwn();
+    const ownLane = own.tracks.find((t) => t.kind === 'text') || lane;
+    const slot = nextSlot(own.clips.filter((c) => c.trackId === ownLane.id), studio.playhead, 6000, own.project.durationMs);
+    if (!slot) throw new ApiError(400, 'There is no room left on the text lane.');
+    const clips = own.clips.concat([{
+      id: 'new-' + Date.now(), trackId: ownLane.id, mediaId: null, label: words.trim().slice(0, 160),
+      startMs: slot.startMs, endMs: slot.endMs, trimInMs: 0,
+    }]);
+    return saveTimeline(own.project.id, tracksPayload(own.tracks, clips));
+  }, 'Text block added.');
+}
+
+async function attachPicture(file) {
+  const id = studio.selection.mediaId;
+  if (!id) { toast('Select a clip in the library first.'); return; }
+  let art = null;
+  try { art = await uploadArt(file); } catch { art = null; }
+  if (!art) { toast('Platform storage did not take the picture. The drawn plate stays.'); return; }
+  remember();
+  await write(async () => {
+    const own = await ensureOwn();
+    const target = own === studio ? id : (own.media[studio.media.findIndex((m) => m.id === id)] || {}).id;
+    if (!target) throw new ApiError(404, 'That clip is not in your library.');
+    studio.selection.mediaId = target;
+    return saveMediaArt(target, art);
+  }, 'Picture saved to the clip.');
+}
+
+/* ── The assistant ─────────────────────────────────────────────────────── */
+
+async function sendChat() {
+  const text = (studio.chat.draft || '').trim();
+  if (!text || studio.chat.busy) return;
+  if (!studio.signedIn) { studio.chat.note = MESSAGES.guest; render(); return; }
+  if (studio.usage && studio.usage.state === 'unavailable') return;
+  studio.chat.busy = true;
+  studio.chat.note = '';
+  render();
+  const projectId = studio.project ? studio.project.id : null;
+  const history = historyFor(studio.transcript);
+  const bridge = window.usernode;
+  const result = await sendMessage(text, history, {
+    post: (t, hist) => askAssistant(projectId, t, hist).then((body) => { takeMeter(body && body._meter); return body; })
+      .catch((err) => { if (err && err.meter) takeMeter(err.meter); throw err; }),
+    requestAccess: bridge && typeof bridge.requestLlmAccess === 'function' ? () => bridge.requestLlmAccess() : null,
+  });
+  studio.chat.busy = false;
+  if (result.state === 'reply') {
+    studio.chat.draft = '';
+    studio.chat.note = '';
+    takeMeter(result.reply);
+    try { applyStudio(await loadStudio()); } catch { /* the reply is shown from the reload; a failed reload keeps the old transcript */ }
+    await refreshUsage();
+  } else {
+    // The message stays in the prompt bar; the widget prints the platform's
+    // own state in the app's words and never retries a cap on its own.
+    studio.chat.note = result.text || MESSAGES.failed;
+    if (result.state === 'app_cap' || result.state === 'budget') {
+      await refreshUsage();
+      if (studio.usage && studio.usage.state === 'reading' && studio.usage.cap > 0) {
+        studio.usage = Object.assign({}, studio.usage, { pct: 100, warn: true });
+      }
+    } else if (result.state === 'declined') {
+      await refreshUsage();
+    }
+  }
+  render();
+}
+
+function quickAction(kindId) {
+  if (kindId === 'text') {
+    if (!studio.chat.draft) studio.chat.draft = 'Draft a title and a two-line description for this project.';
+    render();
+    const prompt = document.querySelector('[data-assistant-prompt]');
+    if (prompt && !prompt.disabled) prompt.focus();
     return;
   }
-  if (upper === 'UFW') { runUfwInTerminal(); return; }
-  const before = terminalLog.length;
-  for (const line of terminalReply(raw)) terminalLog.push(line);
-  if (terminalLog.length === before) return;
-  const runMatch = /^RUN\s+(.+)$/i.exec(raw);
-  const hit = runMatch
-    ? (watch.titles.find((t) => canPlay(t) && (t.id === runMatch[1].trim().toLowerCase()
-      || t.title.toLowerCase() === runMatch[1].trim().toLowerCase()))
-      || watch.titles.find((t) => canPlay(t) && t.title.toLowerCase().includes(runMatch[1].trim().toLowerCase())))
-    : null;
-  if (hit) { startTitle(hit.id, null); return; }
+  go('#/studio/generate/' + kindId);
+}
+
+/* ── Playback, scrubbing and trimming ──────────────────────────────────── */
+
+let playTimer = null;
+let playMark = 0;
+
+// Only the playhead's own elements move during play: a full re-render ten
+// times a second would steal focus from every control.
+function paintPlayhead() {
+  const length = Number(studio.project && studio.project.durationMs) || 1;
+  const pct = (clampMs(studio.playhead, length) / length) * 100;
+  for (const node of document.querySelectorAll('[data-playhead]')) node.style.left = pct + '%';
+  const pair = timecodePair(studio.playhead, length);
+  for (const node of document.querySelectorAll('[data-timecode], [data-timeline-readout]')) node.textContent = pair;
+  const scrub = document.querySelector('[data-scrub]');
+  if (scrub && document.activeElement !== scrub) scrub.value = String(clampMs(studio.playhead, length));
+}
+
+function stopPlay() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  studio.playing = false;
+}
+
+function togglePlay() {
+  if (studio.playing) { stopPlay(); render(); return; }
+  const length = Number(studio.project && studio.project.durationMs) || 0;
+  if (!length) return;
+  if (studio.playhead >= length) studio.playhead = 0;
+  studio.playing = true;
+  playMark = performance.now();
+  playTimer = setInterval(() => {
+    const now = performance.now();
+    studio.playhead = movePlayhead(length, studio.playhead + (now - playMark));
+    playMark = now;
+    if (studio.playhead >= length) {
+      if (studio.loop) studio.playhead = 0;
+      else { stopPlay(); render(); return; }
+    }
+    paintPlayhead();
+  }, 100);
   render();
 }
 
-// Streaming the transcript off the real route is what keeps the Terminal's
-// own copy of the lines from being the only one there is: the button prints
-// whatever the server sends, line by line.
-function runUfwInTerminal() {
-  terminalLog.push('gamewatch> ufw (streaming the simulated transcript)');
-  render();
-  const log = document.querySelector('[data-terminal-log]');
-  const push = (line) => {
-    terminalLog.push(line);
-    if (log) {
-      log.append(el('div', { class: 'rig-print', text: line }));
-      log.scrollTop = log.scrollHeight;
+function seek(ms) {
+  const length = Number(studio.project && studio.project.durationMs) || 0;
+  studio.playhead = movePlayhead(length, ms);
+  paintPlayhead();
+}
+
+function msAt(event, lane) {
+  const rect = lane.getBoundingClientRect();
+  const length = Number(studio.project && studio.project.durationMs) || 0;
+  const x = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+  return rect.width ? Math.round((x / rect.width) * length) : 0;
+}
+
+// The playhead is one element and a pointer: down sets it, move drags it,
+// up ends the drag. No library.
+function scrubStart(event, lane) {
+  if (event.button != null && event.button !== 0) return;
+  event.preventDefault();
+  stopPlay();
+  seek(msAt(event, lane));
+  const move = (e) => seek(msAt(e, lane));
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    render();
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+
+// A trim handle is the same drag with a clamp, then one timeline write.
+function trimStart(event, clip, side, lane) {
+  event.preventDefault();
+  stopPlay();
+  const node = lane.querySelector('[data-clip="' + clip.id + '"]');
+  const length = Number(studio.project && studio.project.durationMs) || 1;
+  let draft = Object.assign({}, clip);
+  const move = (e) => {
+    const at = msAt(e, lane);
+    if (side === 'in') draft = withTrim(clip, at - clip.startMs, length);
+    else draft = withTrim(Object.assign({}, clip, { endMs: Math.max(clip.startMs + 250, at) }), clip.trimInMs, length);
+    if (node) {
+      node.style.width = Math.max(0.5, ((draft.endMs - draft.startMs) / length) * 100) + '%';
+      const trimmed = node.querySelector('.st-clip-trimmed');
+      if (trimmed) trimmed.style.width = Math.min(100, (draft.trimInMs / Math.max(1, draft.endMs - draft.startMs)) * 100) + '%';
     }
   };
-  streamInstallUfw(push).catch(() => {
-    for (const line of ufwTranscript()) push(line);
-    push('The streaming route could not be reached, so this is the terminal\'s own copy.');
-  });
-}
-
-/* ── FTP: a read-only view of what the handheld holds ──────────────────── */
-
-// The tree is built from what the app actually holds: the eight built-in
-// titles as code, and this person's saves and added titles as rows. Nothing
-// is uploaded or downloaded, and no directory outside this app is named.
-function ftpTree() {
-  return {
-    name: '/',
-    children: [
-      {
-        name: 'games',
-        children: watch.titles.map((t) => ({
-          name: t.id,
-          note: licenceLine(t) + (canPlay(t) ? '' : ' | catalogued, not run'),
-          size: t.thumbnailUrl ? 'an uploaded thumbnail' : 'a drawn cover',
-        })),
-      },
-      {
-        name: 'cards',
-        note: 'Memory Card: one file per saved run',
-        children: watch.saves.length
-          ? watch.saves.map((s) => ({
-            name: s.gameId + '-card' + s.slot + '.gw',
-            note: (s.label || 'Saved run') + ' | ' + progressLine(findTitle(s.gameId) || watch.titles[0] || {}, { score: s.highScore }),
-            size: formatWhen(s.savedAt),
-          }))
-          : [{ name: 'empty', note: 'No run has been saved yet.', size: '' }],
-      },
-      {
-        name: 'covers',
-        note: 'Added titles and their covers',
-        children: watch.titles.filter((t) => t.thumbnailUrl).length
-          ? watch.titles.filter((t) => t.thumbnailUrl).map((t) => ({
-            name: t.id + '.cover',
-            note: t.title + ' | cover in platform storage',
-            size: t.builtIn ? 'built in' : 'added by you',
-          }))
-          : [{ name: 'drawn', note: 'Every cover on the shelf is drawn by this app.', size: '' }],
-      },
-      {
-        name: 'os',
-        children: [
-          { name: 'skin.conf', note: 'The OS skin this handheld is set to', size: watch.skin },
-          { name: 'snapshots', note: 'Kept for ' + watch.retentionDays + ' days, then removed', size: watch.snapshots.length + ' held' },
-        ],
-      },
-      { name: 'terminal.log', note: 'The simulated terminal\'s own transcript', size: terminalLog.length + ' lines' },
-    ],
+  const up = async () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    if (draft.trimInMs === clip.trimInMs && draft.endMs === clip.endMs) { render(); return; }
+    remember();
+    const clips = studio.clips.map((c) => (c.id === clip.id ? draft : c));
+    await write(async () => {
+      const own = await ensureOwn();
+      return saveTimeline(own.project.id, tracksPayload(own === studio ? studio.tracks : own.tracks, own === studio ? clips : own.clips));
+    });
   };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
 }
 
-function ftpNode(node, depth) {
-  const row = el('div', {
-    class: 'gw-ftp-row', 'data-ftp-node': node.name,
-    style: 'padding-left:' + (depth * 16) + 'px',
+/* ── The handlers the studio's pieces call ─────────────────────────────── */
+
+const handlers = {
+  go,
+  notice: toast,
+  selectMedia: (id) => {
+    studio.selection.mediaId = id;
+    const clip = studio.clips.find((c) => c.mediaId === id);
+    studio.selection.clipId = clip ? clip.id : null;
+    if (clip) { stopPlay(); studio.playhead = clip.startMs; }
+    render();
   },
-    el('span', { class: 'rig-print', text: (node.children ? '/ ' : '  ') + node.name }),
-    node.note ? el('span', { class: 'text-small text-muted', text: node.note }) : null,
-    node.size ? el('span', { class: 'text-small text-muted ml-auto', text: String(node.size) }) : null,
-  );
-  if (!node.children) return row;
-  return el('div', { class: 'flex flex-col gap-1' }, row, node.children.map((child) => ftpNode(child, depth + 1)));
-}
-
-function renderFtp() {
-  const module = moduleById('ftp');
-  const tree = ftpTree();
-  return windowBody(module, [
-    el('div', { class: 'flex flex-wrap items-center gap-2' },
-      simBadge('Simulated file tree'),
-      el('span', { class: 'text-small text-muted', text: 'Read-only. GameWatch uploads and downloads nothing, and names no directory outside this app.' }),
-    ),
-    el('div', { class: 'gw-ftp', 'data-ftp-tree': '' },
-      el('p', { class: 'rig-print', text: 'gamewatch / (read-only, simulated)' }),
-      ftpNode(tree, 0),
-    ),
-    el('p', { class: 'text-small text-muted', text: 'The tree is built from what this handheld actually holds: the eight built-in titles, your Memory Card, your added titles and the OS settings.' }),
-  ], null, { 'data-ftp-window': '' });
-}
-
-/* ── The OS screen ─────────────────────────────────────────────────────── */
-
-const SKIN_LABELS = {
-  classic: 'Classic green, the panel this handheld shipped with',
-  silver: 'Silver, a lifted grey for a bright room',
-  night: 'Night, a dim panel for a dark room',
+  selectClip: (clipId, mediaId) => {
+    studio.selection.clipId = clipId;
+    if (mediaId) studio.selection.mediaId = mediaId;
+    render();
+  },
+  setQuery: (q) => {
+    studio.query = q;
+    const root = document.querySelector('[data-library]');
+    // The list re-renders in place so the search box keeps its focus.
+    if (root) {
+      const fresh = renderStudioLibrary();
+      root.replaceWith(fresh);
+      const input = fresh.querySelector('[data-library-search]');
+      if (input) { input.focus(); input.setSelectionRange(q.length, q.length); }
+    }
+  },
+  useTool: (tool) => {
+    studio.tool = tool;
+    if (tool === 'text') { addTextBlock(); studio.tool = 'select'; return; }
+    if (tool === 'image') { go('#/studio/generate/images'); return; }
+    if (tool === 'effects') { go('#/studio/inspector/audio'); return; }
+    render();
+  },
+  togglePlay,
+  toggleLoop: () => { studio.loop = !studio.loop; render(); },
+  seek,
+  scrubStart,
+  trimStart,
+  changeProject,
+  toggleTrack,
+  setVoice: (patch) => { Object.assign(studio.voice, patch); },
+  setInstructions: (v) => { studio.instructions = v; },
+  addPlaceholder,
+  removeMedia: removeMediaRow,
+  attach: attachPicture,
+  sendMessage: sendChat,
+  setDraft: (v) => { studio.chat.draft = v; },
+  quick: quickAction,
+  undo: async () => {
+    const snap = studio.undo.pop();
+    if (!snap) return;
+    studio.redo.push(snapshot());
+    await restore(snap);
+  },
+  redo: async () => {
+    const snap = studio.redo.pop();
+    if (!snap) return;
+    studio.undo.push(snapshot());
+    await restore(snap);
+  },
 };
 
-let osBusy = false;
-
-function renderOs() {
-  const module = moduleById('os');
-  const readout = el('div', { class: 'flex flex-col gap-3', 'data-os-readout': '' });
-
-  function paintReadout() {
-    readout.replaceChildren(
-      readoutBlock([
-        'OS: GameWatch 2.11 | skin ' + watch.skin,
-        'SKIN: ' + (SKIN_LABELS[watch.skin] || watch.skin),
-        'TITLES: ' + watch.titles.filter((t) => t.builtIn).length + ' built in | '
-          + watch.titles.filter((t) => !t.builtIn).length + ' added',
-        'SNAPSHOTS: ' + watch.snapshots.length + ' held | kept ' + watch.retentionDays + ' days',
-      ], { 'data-os-lines': '' }),
-      el('div', { class: 'card flex flex-col gap-2', 'data-os-transcript': '' },
-        el('h3', { class: 'text-heading', text: 'The last time this handheld was provisioned' }),
-        watch.transcript.length
-          ? el('div', { class: 'rig-readout' }, watch.transcript.map((line) => el('div', { class: 'rig-print', text: line })))
-          : emptyState('This handheld has not been provisioned since it was set up. Choose a skin and provision it.'),
-      ),
-    );
-  }
-
-  const buttons = el('div', { class: 'flex flex-wrap gap-2' });
-  function paintButtons() {
-    buttons.replaceChildren(...Object.keys(SKIN_LABELS).map((skin) => el('button', {
-      class: skin === watch.skin ? 'btn-primary' : 'btn-secondary', type: 'button',
-      'data-skin': skin, 'data-skin-on': skin === watch.skin ? '' : null,
-      text: skin === watch.skin ? 'Set to ' + skin : 'Set ' + skin,
-      onclick: () => { unlockAudio(); tone('tick'); provision(skin); },
-    })));
-  }
-
-  async function provision(skin) {
-    if (osBusy) return;
-    osBusy = true;
-    try {
-      const lines = [
-        'GameWatch OS, simulated provisioning.',
-        'This runs nothing and installs nothing: it writes the skin and a transcript.',
-        'Setting the panel skin to ' + skin + '.',
-        'Titles present: ' + watch.titles.filter((t) => t.builtIn).length + ' built in, '
-          + watch.titles.filter((t) => !t.builtIn).length + ' added.',
-        'Memory Card: ' + watch.saves.length + ' run(s) on it.',
-        'Kept ' + watch.retentionDays + ' days of snapshots: ' + watch.snapshots.length + ' held.',
-        'Provisioning complete. The panel is now ' + skin + '.',
-      ];
-      const body = await saveSkin(skin, lines);
-      if (body) {
-        watch.skin = body.skin || skin;
-        watch.transcript = Array.isArray(body.transcript) ? body.transcript : lines;
-      }
-      toast('The OS is now set to ' + watch.skin + '.');
-      paintReadout();
-      paintButtons();
-      const glass = document.querySelector('[data-rig]');
-      if (glass) glass.setAttribute('data-skin', watch.skin);
-    } catch (err) {
-      toast(apiMessage(err, 'Could not provision the OS.'));
-    } finally {
-      osBusy = false;
-    }
-  }
-
-  paintButtons();
-  paintReadout();
-
-  return windowBody(module, [
-    el('div', { class: 'flex flex-wrap items-center gap-2' },
-      simBadge('Simulated OS'),
-      el('span', { class: 'text-small text-muted', text: 'Provisioning the OS writes a skin and a transcript. It reaches no host and installs nothing.' }),
-    ),
-    el('section', { class: 'flex flex-col gap-2', 'data-os-skins': '' },
-      el('h3', { class: 'text-heading', text: 'The panel skins' }),
-      el('ul', { class: 'list' }, Object.keys(SKIN_LABELS).map((skin) => el('li', {
-        class: 'list-row justify-between gap-3', 'data-os-skin': skin,
-      },
-        el('span', { class: 'text-body font-medium', text: skin }),
-        el('span', { class: 'text-body text-muted', text: SKIN_LABELS[skin] }),
-      ))),
-      buttons,
-    ),
-    readout,
-    el('p', { class: 'text-small text-muted', text: 'A skin changes this whole app\'s panel palette. GameWatch is drawn as its own scene, so there is one fixed look and the skins are shades of it.' }),
-  ], null, { 'data-os-window': '' });
+function renderStudioLibrary() {
+  // The library alone, for the search box's in-place update.
+  const whole = renderStudio(studio, handlers);
+  return whole.querySelector('[data-library]');
 }
 
-/* ── Features: snapshots, retention, and Install UFW ───────────────────── */
+/* ── The other screens ─────────────────────────────────────────────────── */
 
-let installLog = [];
-let installBusy = false;
-
-function retentionSummary() {
-  const held = watch.snapshots.length;
-  const past = watch.snapshots.filter((s) => s.pastRetention).length;
-  return [
-    'RETENTION: snapshots are kept for two months (' + watch.retentionDays + ' days) in UTC.',
-    'HELD: ' + held + (held === 1 ? ' snapshot' : ' snapshots') + ' | past the window: ' + past,
-    'NOW: ' + nowDate().toISOString(),
-  ];
-}
-
-function snapshotRow(snap) {
-  return el('li', { class: 'list-row flex-wrap justify-between gap-3', 'data-snapshot': snap.id },
-    el('div', { class: 'flex flex-col gap-0.5' },
-      el('strong', { class: 'text-body', text: snap.label }),
-      el('span', { class: 'text-small text-muted', text: 'Taken ' + formatWhen(snap.takenAt)
-        + ' | ' + snap.ageDays + (snap.ageDays === 1 ? ' day old' : ' days old')
-        + ' | removed after ' + formatWhen(snap.expiresAt) }),
-      el('span', { class: 'rig-print', 'data-snapshot-state': snap.id,
-        text: snap.pastRetention
-          ? 'Past the two-month window: this one is removed on the next boot.'
-          : 'Inside the two-month window. ' + (watch.retentionDays - snap.ageDays) + ' days left.' }),
-    ),
-    el('button', {
-      class: 'btn-secondary', type: 'button', 'data-remove-snapshot': snap.id, text: 'Remove',
-      onclick: () => removeSnap(snap),
-    }),
-  );
-}
-
-async function removeSnap(snap) {
-  try {
-    await deleteSnapshot(snap.id);
-    watch.snapshots = watch.snapshots.filter((s) => s.id !== snap.id);
-    toast('Removed ' + snap.label + '.');
-    render();
-  } catch (err) {
-    toast(apiMessage(err, 'Could not remove that snapshot.'));
-  }
-}
-
-async function takeSnapNow() {
-  try {
-    const label = 'Snapshot ' + formatWhen(nowDate());
-    const snap = await takeSnapshot(label);
-    if (snap) watch.snapshots = [snap].concat(watch.snapshots);
-    toast('Snapshot taken.');
-    render();
-  } catch (err) {
-    toast(apiMessage(err, 'Could not take a snapshot.'));
-  }
-}
-
-function renderFeatures() {
-  const module = moduleById('features');
-  const log = el('div', { class: 'rig-readout gw-install-log', 'data-install-log': '' },
-    (installLog.length ? installLog : ['The transcript has not been run yet. Press Install UFW to stream it.'])
-      .map((line) => el('div', { class: 'rig-print', text: line })),
-  );
-
-  async function install() {
-    if (installBusy) return;
-    installBusy = true;
-    installLog = ['Streaming the simulated transcript from the app\'s own route.'];
-    paintInstall();
-    tone('tick');
-    try {
-      await streamInstallUfw((line) => {
-        installLog.push(line);
-        paintInstall();
-      });
-      installLog.push('End of transcript. Nothing was installed and no host was contacted.');
-    } catch (err) {
-      installLog.push('The route could not be reached: ' + (err && err.message ? err.message : 'unknown error'));
-    } finally {
-      installBusy = false;
-      paintInstall();
-    }
-  }
-
-  function paintInstall() {
-    log.replaceChildren(...installLog.map((line) => el('div', { class: 'rig-print', text: line })));
-    log.scrollTop = log.scrollHeight;
-  }
-
-  return windowBody(module, [
-    el('div', { class: 'flex flex-wrap items-center gap-2' },
-      simBadge('Simulated features'),
-      el('span', { class: 'text-small text-muted', text: 'Everything on this screen is this app\'s own output. It reaches no host, runs no shell and installs nothing.' }),
-    ),
-    el('section', { class: 'flex flex-col gap-2', 'data-retention': '' },
-      el('h3', { class: 'text-heading', text: 'Snapshot retention' }),
-      el('p', { class: 'text-body text-muted', text: 'GameWatch keeps snapshots of the handheld for two months, in UTC. Anything older is removed when the app next starts.' }),
-      readoutBlock(retentionSummary(), { 'data-retention-readout': '' }),
-      watch.snapshots.length
-        ? el('ul', { class: 'list', 'data-snapshots': '' }, watch.snapshots.map(snapshotRow))
-        : emptyState('No snapshots yet. Take one and it is kept for two months.'),
-      el('div', { class: 'flex flex-wrap gap-2' },
-        el('button', { class: 'btn-primary', type: 'button', 'data-take-snapshot': '', text: 'Take a snapshot', onclick: takeSnapNow }),
-      ),
-    ),
-    el('section', { class: 'flex flex-col gap-2', 'data-install-ufw': '' },
-      el('h3', { class: 'text-heading', text: 'Install UFW' }),
-      el('p', { class: 'text-body text-muted', text: 'This streams a fixed, obviously simulated install transcript, one line at a time. It runs no shell, installs no package and reaches no host, so it behaves identically everywhere.' }),
-      log,
-      el('div', { class: 'flex flex-wrap gap-2' },
-        el('button', { class: 'btn-primary', type: 'button', 'data-install-ufw-run': '', text: 'Install UFW', onclick: install }),
-        el('button', {
-          class: 'btn-secondary', type: 'button', 'data-install-ufw-clear': '', text: 'Clear the transcript',
-          onclick: () => { installLog = []; render(); },
-        }),
-      ),
-    ),
-  ], null, { 'data-features-window': '' });
-}
-
-/* ── Settings: the panel's picture, sound and keys ─────────────────────── */
-
-const SLIDERS = [
-  { key: 'volume', label: 'Volume', min: 0, max: 100, step: 1, format: (v) => Math.round(v) + ' percent' },
-  { key: 'gamma', label: 'Gamma', min: 0.5, max: 2, step: 0.05, format: (v) => Number(v).toFixed(2) },
-  { key: 'brightness', label: 'Brightness', min: -50, max: 50, step: 5, format: (v) => (v > 0 ? '+' : '') + Math.round(v) },
-  { key: 'contrast', label: 'Contrast', min: -50, max: 50, step: 5, format: (v) => (v > 0 ? '+' : '') + Math.round(v) },
-  { key: 'scanline', label: 'Scanlines', min: 0, max: 100, step: 5, format: (v) => Math.round(v) + ' percent' },
-  { key: 'curvature', label: 'Curvature', min: 0, max: 100, step: 5, format: (v) => Math.round(v) + ' percent' },
-];
-
-let settingsDraft = null;
-let captureAction = null;
-
-// The shell mirrors the two panel settings onto its own glass, so the frame
-// around a screen matches the picture inside it.
-function paintGlass(settings) {
-  const root = document.querySelector('[data-rig]');
-  if (!root) return;
-  root.style.setProperty('--rig-scanline', String(Math.round((settings.scanline / 100) * 50)));
-  root.style.setProperty('--rig-curvature', String(Math.round((settings.curvature / 100) * 40)));
-  root.setAttribute('data-skin', watch.skin);
-}
-
-// The Settings preview: a small test card, so a slider change is visible
-// before it is saved.
-function drawTestCard(picture) {
-  const ctx = picture.bctx;
-  const bars = ['#22301f', '#4a5a42', '#8a9a80', '#c2ccb6'];
-  picture.clear(LCD_GROUND);
-  const width = Math.floor(320 / bars.length);
-  for (let i = 0; i < bars.length; i += 1) {
-    ctx.fillStyle = bars[i];
-    ctx.fillRect(i * width, 20, width, 60);
-  }
-  ctx.fillStyle = LCD_INK;
-  ctx.font = 'bold 10px ui-monospace, Menlo, monospace';
-  ctx.textBaseline = 'top';
-  ctx.fillText('GAMEWATCH PANEL TEST CARD', 10, 92);
-  ctx.fillText('320 x 200 SEGMENTS', 10, 108);
-  ctx.fillText('THIS IS A SIMULATED PANEL', 10, 124);
-  ctx.fillStyle = 'rgba(34, 48, 31, 0.42)';
-  ctx.fillRect(10, 148, 300, 32);
-  ctx.textAlign = 'right';
-  ctx.fillText('CURVATURE SHOWS AT THE CORNERS', 300, 156);
-  ctx.textAlign = 'left';
-}
-
-function renderSettings() {
-  const module = moduleById('settings');
-  if (!settingsDraft) settingsDraft = Object.assign({}, watch.settings);
-
-  const canvas = el('canvas', { class: 'rig-canvas', 'data-preview-canvas': '' });
-  const screen = el('div', { class: 'rig-screen', 'data-preview': '' }, canvas,
-    el('span', { class: 'rig-sim', text: 'Simulated panel' }));
-  const readout = readoutBlock(describeSettings(settingsDraft), { 'data-settings-readout': '' });
-
-  const sliders = el('div', { class: 'flex flex-col gap-4', 'data-settings': '' },
-    SLIDERS.map((spec) => {
-      const id = 'settings-' + spec.key;
-      const value = el('span', { class: 'rig-print', 'data-setting-value': spec.key, text: spec.format(settingsDraft[spec.key]) });
-      const input = el('input', {
-        class: 'w-full accent-accent', type: 'range', id, 'data-setting': spec.key,
-        min: String(spec.min), max: String(spec.max), step: String(spec.step),
-        value: String(settingsDraft[spec.key]), 'aria-label': spec.label,
-        oninput: (event) => {
-          unlockAudio();
-          settingsDraft[spec.key] = Number(event.currentTarget.value);
-          value.textContent = spec.format(settingsDraft[spec.key]);
-          applyDraft();
-        },
-      });
-      return el('div', { class: 'flex flex-col gap-1' },
-        el('div', { class: 'flex flex-wrap items-center justify-between gap-2' },
-          el('label', { class: 'text-small text-muted', for: id, text: spec.label }),
-          value,
+function renderAbout() {
+  return el('main', { class: 'st-root', 'data-about': '' },
+    el('section', { class: 'rig-window st-glass' },
+      el('div', { class: 'rig-window-bar' }, el('strong', { class: 'text-body', text: APP_NAME })),
+      el('div', { class: 'rig-window-body' },
+        el('h1', { class: 'text-title', text: 'A dark studio for AI media work' }),
+        el('p', { class: 'text-body text-muted', text: 'One project, built from clips, text, transitions and audio, with an inspector, a multi-track timeline and an assistant.' }),
+        el('div', { class: 'rig-readout' },
+          [
+            'REAL: the project, its media, its tracks and clips, and the assistant chat through the platform\'s text AI.',
+            'SIMULATED: image, avatar, video and sound generation, the collaborator avatars, the preview plate and the export.',
+            SIM_LINE,
+          ].map((line) => el('p', { class: 'rig-print', text: line })),
         ),
-        input,
-      );
-    }),
-  );
-
-  return windowBody(module, [
-    el('p', { class: 'text-body text-muted', text: 'These settings are the panel\'s picture and sound. They are stored with your handheld and applied to every title you run. Contrast and curvature change the picture a title is drawn with, not only the frame around it.' }),
-    el('div', { class: 'grid gap-4 sm:grid-cols-2' },
-      el('div', { class: 'flex flex-col gap-2' }, screen, simBadge('Simulated panel')),
-      readout,
-    ),
-    sliders,
-    el('div', { class: 'flex flex-wrap gap-2' },
-      el('button', { class: 'btn-primary', type: 'button', 'data-save-settings': '', text: 'Save settings', onclick: saveSettingsNow }),
-      el('button', {
-        class: 'btn-secondary', type: 'button', 'data-reset-settings': '', text: 'Undo changes',
-        onclick: () => { settingsDraft = Object.assign({}, watch.settings); render(); },
-      }),
-    ),
-    renderKeyMapping(),
-  ], null, { 'data-settings-window': '' });
-}
-
-function applyDraft() {
-  const canvas = document.querySelector('[data-preview-canvas]');
-  if (canvas) {
-    const picture = pictureFor(canvas);
-    picture.applySettings(settingsDraft);
-    picture.resize();
-    drawTestCard(picture);
-    picture.present();
-  }
-  const readout = document.querySelector('[data-settings-readout]');
-  if (readout) {
-    readout.replaceChildren(...describeSettings(settingsDraft).map((line) => el('div', { class: 'rig-print', text: line })));
-  }
-  paintGlass(settingsDraft);
-}
-
-async function saveSettingsNow() {
-  try {
-    const saved = await saveSettings(settingsDraft);
-    watch.settings = normalizeSettings(saved || settingsDraft);
-    settingsDraft = Object.assign({}, watch.settings);
-    toast('Settings saved.');
-    render();
-  } catch (err) {
-    toast(apiMessage(err, 'Could not save the settings.'));
-  }
-}
-
-/* ── The key mapping (in Settings) ─────────────────────────────────────── */
-
-function renderKeyMapping() {
-  const mapping = el('ul', { class: 'list', 'data-mapping': '' }, ACTIONS.map((action) => {
-    const capturing = captureAction === action.key;
-    const key = watch.bindings[action.key];
-    return el('li', { class: 'list-row flex-wrap justify-between gap-3', 'data-action': action.key },
-      el('div', { class: 'flex flex-col gap-0.5' },
-        el('strong', { class: 'text-body', text: action.label }),
-        el('span', { class: 'text-small text-muted', text: action.blurb }),
-        el('span', { class: 'rig-print', 'data-action-key': action.key, text: key ? keyLabel(key) : 'nothing yet' }),
-      ),
-      el('div', { class: 'flex flex-wrap gap-2' },
-        el('button', {
-          class: capturing ? 'btn-primary' : 'btn-secondary', type: 'button', 'data-pick-key': action.key,
-          text: capturing ? 'Press a key' : 'Pick a key',
-          onclick: () => { unlockAudio(); captureAction = capturing ? null : action.key; render(); },
-        }),
-      ),
-    );
-  }));
-
-  return el('section', { class: 'flex flex-col gap-3', 'data-key-mapping': '' },
-    el('h3', { class: 'text-heading', text: 'The handheld key mapping' }),
-    el('p', { class: 'text-body text-muted', text: 'Nine keys, and every one of them does something. The mapping is what the titles read, so a title can be played with keys you choose. A key that is already taken is refused rather than swapped silently.' }),
-    mapping,
-    el('div', { class: 'flex flex-wrap gap-2' },
-      el('button', {
-        class: 'btn-secondary', type: 'button', 'data-reset-mapping': '', text: 'Restore the default mapping',
-        onclick: () => {
-          unlockAudio();
-          watch.bindings = Object.assign({}, DEFAULT_BINDINGS);
-          captureAction = null;
-          saveMapping('The default mapping is back.');
-        },
-      }),
-    ),
-    el('p', { class: 'text-small text-muted', text: captureAction ? 'Pick a key now: press it on your own keyboard, or tap a key below.' : 'The mapping is saved to your handheld as soon as you pick a key.' }),
-    el('ul', { class: 'list', 'data-mapping-summary': '' },
-      ACTIONS.map((a) => el('li', { class: 'list-row justify-between gap-3' },
-        el('span', { class: 'text-body', text: a.label }),
-        el('span', { class: 'rig-print', text: keyLabel(watch.bindings[a.key]) || 'nothing yet' }),
-      )),
-    ),
-  );
-}
-
-async function saveMapping(message) {
-  try {
-    const saved = await saveBindings(watch.bindings);
-    if (saved && Object.keys(saved).length) {
-      const merged = Object.assign({}, DEFAULT_BINDINGS);
-      for (const k of Object.keys(DEFAULT_BINDINGS)) {
-        if (typeof saved[k] === 'string' && saved[k]) merged[k] = saved[k];
-      }
-      watch.bindings = merged;
-    }
-    toast(message || 'Key mapping saved.');
-  } catch (err) {
-    toast(apiMessage(err, 'Could not save the mapping.'));
-  }
-  render();
-}
-
-function assignKey(action, key) {
-  if (!key) return;
-  const clashes = conflictsFor(watch.bindings, action, key);
-  if (clashes.length) {
-    captureAction = null;
-    toast(keyLabel(key) + ' is already ' + clashes[0] + '.');
-    render();
-    return;
-  }
-  if (watch.bindings[action] === key) {
-    captureAction = null;
-    toast(keyLabel(key) + ' is already ' + actionLabel(action) + '.');
-    render();
-    return;
-  }
-  watch.bindings[action] = key;
-  captureAction = null;
-  saveMapping(keyLabel(key) + ' is now ' + actionLabel(action) + '.');
-}
-
-/* ── The admin panel ───────────────────────────────────────────────────── */
-
-function renderAdmin() {
-  const module = { id: 'admin', title: 'Titles you added' };
-  const panel = renderAdminPanel({
-    entries: watch.catalogue,
-    identity: { username: watch.username, signedIn: watch.signedIn },
-    uploadsAvailable: uploadsAvailable(),
-    onAdd: addAdminTitle,
-    onRemove: removeAdminTitle,
-  });
-  return windowBody(module, [
-    el('p', { class: 'text-body text-muted', text: CATALOGUE_NOTE }),
-    panel,
-    el('button', {
-      class: 'btn-secondary', type: 'button', text: 'Back to the Arcade',
-      onclick: () => { unlockAudio(); tone('tick'); go('#/'); },
-    }),
-  ], null, { 'data-admin-window': '' });
-}
-
-async function addAdminTitle(title, file) {
-  let storageUrl = null;
-  try {
-    if (file && uploadsAvailable()) storageUrl = await uploadCover(file);
-  } catch {
-    storageUrl = null;
-  }
-  const entry = await addCatalogueEntry({ title, storageUrl });
-  if (entry) watch.catalogue = [entry].concat(watch.catalogue);
-  try {
-    await reloadTitles();
-  } catch { /* the catalogue row is still shown from the panel's own copy */ }
-  toast(storageUrl
-    ? 'Added ' + title + ' with its cover.'
-    : 'Added ' + title + '. It uses the drawn cover.');
-  render();
-}
-
-async function removeAdminTitle(entry) {
-  try {
-    await removeCatalogueEntry(entry.id);
-    watch.catalogue = watch.catalogue.filter((e) => e.id !== entry.id);
-    toast('Removed ' + entry.title + '.');
-    render();
-  } catch (err) {
-    toast(apiMessage(err, 'Could not remove that title.'));
-  }
-}
-
-/* ── The manager panel ─────────────────────────────────────────────────── */
-
-// The manager is where a title's words are edited: its name, its genres, its
-// descriptions, its control list and its three pictures. The editor itself is
-// in public/manage.js; this is the screen's own state and its writes.
-let manageEditingId = null;
-let manageAdding = false;
-
-function identity() {
-  return { username: watch.username, signedIn: watch.signedIn };
-}
-
-function renderManager(params) {
-  const module = { id: 'manage', title: 'Manage titles' };
-  const wantsNew = params && params.get('new') === '1';
-  if (wantsNew && !manageAdding && manageEditingId == null) {
-    manageAdding = true;
-    manageEditingId = null;
-  }
-
-  const rows = managerRows(watch.titles, {
-    identity: identity(),
-    editingId: manageEditingId,
-    onEdit: (id) => {
-      unlockAudio();
-      tone('tick');
-      manageAdding = false;
-      manageEditingId = manageEditingId === id ? null : id;
-      render();
-    },
-  });
-
-  const body = [
-    el('div', { class: 'flex flex-wrap items-center gap-2' },
-      simBadge('Simulated handheld'),
-      el('span', { class: 'text-small text-muted', text: 'Every title in this Arcade is a row here. Its words are editable; its rules and its panel stay in the app.' }),
-    ),
-    el('p', { class: 'text-body text-muted', text: MANAGE_NOTE }),
-    el('section', { class: 'flex flex-col gap-2', 'data-manage-list': '' },
-      el('div', { class: 'flex flex-wrap items-center justify-between gap-2' },
-        el('h3', { class: 'text-heading', text: 'Titles in this Arcade' }),
-        el('button', {
-          class: 'btn-secondary', type: 'button', 'data-manage-add': '', text: 'Add a title',
-          disabled: canAddTitle(identity()) ? null : 'disabled',
-          onclick: () => { unlockAudio(); tone('tick'); manageAdding = true; manageEditingId = null; render(); },
-        }),
-      ),
-      rows.length
-        ? el('ul', { class: 'list' }, rows)
-        : emptyState('No titles yet. Add one and it appears in the Arcade.'),
-    ),
-  ];
-
-  if (manageAdding) {
-    body.push(renderTitleForm(blankTitle(), {
-      identity: identity(), uploadsAvailable: uploadsAvailable(), isNew: true,
-      onSave: saveManagedTitle,
-      onCancel: () => { manageAdding = false; render(); },
-    }));
-  } else if (manageEditingId) {
-    const title = findTitle(manageEditingId);
-    if (title) {
-      body.push(renderTitleForm(title, {
-        identity: identity(), uploadsAvailable: uploadsAvailable(),
-        onSave: saveManagedTitle,
-        onCancel: () => { manageEditingId = null; render(); },
-      }));
-    }
-  }
-
-  body.push(el('div', { class: 'flex flex-wrap gap-2' },
-    el('button', {
-      class: 'btn-secondary', type: 'button', 'data-manage-open-banner': '', text: 'Edit this banner',
-      onclick: () => { unlockAudio(); tone('tick'); go('#/manage/banner'); },
-    }),
-    el('button', {
-      class: 'btn-secondary', type: 'button', text: 'Back to the Arcade',
-      onclick: () => { unlockAudio(); tone('tick'); go('#/'); },
-    }),
-  ));
-
-  const canRemove = manageEditingId && findTitle(manageEditingId) && canEditTitle(findTitle(manageEditingId), identity());
-  if (canRemove && !findTitle(manageEditingId).builtIn) {
-    body.push(el('button', {
-      class: 'btn-secondary', type: 'button', 'data-manage-remove': manageEditingId,
-      text: 'Remove ' + findTitle(manageEditingId).title,
-      onclick: () => removeManagedTitle(findTitle(manageEditingId)),
-    }));
-  }
-
-  return windowBody(module, body, null, { 'data-manage-panel': '' });
-}
-
-// The banner's own screen, #/manage/banner.
-function renderBannerScreen() {
-  const module = { id: 'manage-banner', title: 'The banner' };
-  return windowBody(module, [
-    el('div', { class: 'flex flex-wrap items-center gap-2' },
-      simBadge('Simulated banner'),
-      el('span', { class: 'text-small text-muted', text: 'The Arcade banner slides through this list, on its own or by the arrows.' }),
-    ),
-    renderBannerEditor(watch.titles, watch.slides, {
-      identity: identity(), uploadsAvailable: uploadsAvailable(), onSave: saveBannerSlides,
-    }),
-    el('button', {
-      class: 'btn-secondary', type: 'button', text: 'Back to the Arcade',
-      onclick: () => { unlockAudio(); tone('tick'); go('#/'); },
-    }),
-  ], null, { 'data-manage-banner-screen': '' });
-}
-
-// A blank title for the Add form. Its id is fixed and obviously a staging-free
-// placeholder: the server keeps the id it is given, and a person's own added
-// title is keyed to their account.
-function blankTitle() {
-  return {
-    id: 'added-' + Date.now().toString(36),
-    title: '', year: '', category: 'Added by you', genreBox: '', genres: [],
-    tagline: '', summary: '', controls: [], howTo: [], coverArt: [], tiers: [],
-    thumbnailUrl: null, thumbnailFileId: null, bezelUrl: null, bezelFileId: null,
-    builtIn: false, mine: true, sortOrder: 100,
-  };
-}
-
-// Save one title. The art is uploaded first (a new file, never an overwrite),
-// then the whole title is written in one call.
-async function saveManagedTitle(patch, files) {
-  const uploads = uploadsAvailable();
-  const next = Object.assign({}, patch);
-  for (const kind of ['thumbnail', 'bezel']) {
-    const input = files && files[kind];
-    const file = input && input.files && input.files[0];
-    if (!file || !uploads) continue;
-    const uploaded = await uploadArt(file);
-    if (!uploaded) { toast('The picture could not be uploaded, so the drawn art is used instead.'); continue; }
-    next[kind] = { url: uploaded.url, fileId: uploaded.fileId };
-  }
-  const saved = await saveTitle(next);
-  if (saved) {
-    watch.titles = registerTitles(mergeTitle(watch.titles, saved));
-  }
-  toast(patch.title ? 'Saved ' + patch.title + '.' : 'Saved the title.');
-  manageEditingId = saved ? saved.id : null;
-  manageAdding = false;
-  render();
-}
-
-async function removeManagedTitle(title) {
-  try {
-    await deleteTitle(title.id);
-    watch.slides = watch.slides.filter((s) => s.titleId !== title.id);
-    watch.titles = registerTitles(watch.titles.filter((t) => t.id !== title.id));
-    manageEditingId = null;
-    toast('Removed ' + title.title + '.');
-    render();
-  } catch (err) {
-    toast(apiMessage(err, 'Could not remove that title.'));
-  }
-}
-
-async function saveBannerSlides(draft, files) {
-  const uploads = uploadsAvailable();
-  const out = [];
-  for (let i = 0; i < draft.length; i += 1) {
-    const slide = draft[i];
-    let art = slide.artUrl ? { url: slide.artUrl, fileId: slide.artFileId || null } : null;
-    const file = files && files[i];
-    if (file && uploads) {
-      const uploaded = await uploadArt(file);
-      if (uploaded) art = { url: uploaded.url, fileId: uploaded.fileId };
-      else toast('A slide picture could not be uploaded, so the drawn art is used.');
-    }
-    out.push({ titleId: slide.titleId, art });
-  }
-  const saved = await saveBanner(out);
-  watch.slides = Array.isArray(saved) ? saved : [];
-  toast('The banner is saved.');
-  render();
-}
-
-// One saved title, folded back into the collection in the app's own order.
-function mergeTitle(titles, saved) {
-  const rest = (titles || []).filter((t) => t.id !== saved.id);
-  const next = rest.concat([saved]);
-  next.sort((a, b) => {
-    if (a.builtIn !== b.builtIn) return a.builtIn ? -1 : 1;
-    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-    return String(a.title).localeCompare(String(b.title));
-  });
-  return next;
-}
-
-// Re-read the collection after a write that went through another route (the
-// older admin panel's add), so the manager and the Arcade agree.
-async function reloadTitles() {
-  const rows = await listTitles();
-  watch.titles = registerTitles(rows.length ? rows : watch.titles);
-  watch.catalogue = watch.titles.filter((t) => !t.builtIn && t.mine)
-    .map((t) => ({ id: t.id, title: t.title, filename: null, storageUrl: t.thumbnailUrl, addedAt: null }));
-}
-
-/* ── Running a title ───────────────────────────────────────────────────── */
-
-function firstFreeCard(gameId) {
-  for (const card of [1, 2, 3, 4]) {
-    if (!watch.saves.some((s) => s.gameId === gameId && s.slot === card)) return card;
-  }
-  return 1;
-}
-
-function saveLabel(title, snapshot) {
-  return title.title + ': ' + (snapshot.progress || 'a run');
-}
-
-async function saveRun(title, snapshot, card) {
-  const target = card || firstFreeCard(title.id);
-  try {
-    const plain = JSON.parse(JSON.stringify(snapshot));
-    const saved = await saveSlot(title.id, target, plain, saveLabel(title, snapshot));
-    if (saved) {
-      watch.saves = watch.saves.filter((s) => !(s.gameId === title.id && s.slot === target)).concat([saved]);
-    }
-    toast('Saved to Memory Card ' + target + '.');
-  } catch (err) {
-    toast(apiMessage(err, 'Could not write that card.'));
-  }
-}
-
-async function clearCard(gameId, card) {
-  try {
-    await deleteSlot(gameId, card);
-    watch.saves = watch.saves.filter((s) => !(s.gameId === gameId && s.slot === card));
-    toast('Cleared Memory Card ' + card + '.');
-    render();
-  } catch (err) {
-    toast(apiMessage(err, 'Could not clear that card.'));
-  }
-}
-
-function renderPlayRoute(parts, params) {
-  const title = findTitle(parts[1]);
-  if (!title) return renderUnknown();
-  const cardParam = Number(params.get('card'));
-  const card = Number.isInteger(cardParam) && cardParam >= 1 && cardParam <= 4 ? cardParam : null;
-  const slots = watch.saves.filter((s) => s.gameId === title.id);
-  const entry = card ? slots.find((s) => Number(s.slot) === card) : null;
-
-  playHandle = renderPlay(title, {
-    settings: watch.settings,
-    bindings: watch.bindings,
-    slots,
-    snapshot: entry ? entry.state : null,
-    slot: card || null,
-    onExit: () => go('#/'),
-    onHowTo: () => go('#/how/' + title.id),
-    onSave: async (snapshot, target) => {
-      await saveRun(title, snapshot, target);
-      // The card list is redrawn from the host's own copy, so the row shows
-      // the run immediately rather than after the next route change.
-      if (playHandle && playHandle.refreshCards) playHandle.refreshCards();
-    },
-    onClear: (n) => clearCard(title.id, n),
-    readSlots: () => watch.saves.filter((s) => s.gameId === title.id),
-  });
-  return playHandle ? playHandle.el : renderUnknown();
-}
-
-/* ── The boot sequence ─────────────────────────────────────────────────── */
-
-function bootScreen(revealed) {
-  const lines = BOOT_LINES.slice(0, revealed);
-  return el('div', { class: 'rig', 'data-rig': '', 'data-boot': '' },
-    el('div', { class: 'rig-bezel' },
-      el('div', { class: 'rig-glass', 'data-glass': '' },
-        el('div', { class: 'rig-vignette', 'aria-hidden': 'true' }),
-        el('div', { class: 'relative flex flex-1 flex-col gap-2', 'data-boot-lines': '' },
-          lines.map((line) => el('p', { class: 'rig-print', text: line })),
-          el('p', { class: 'rig-print', text: '>' }),
-        ),
-        el('div', { class: 'rig-scanlines', 'aria-hidden': 'true' }),
-      ),
-      el('div', { class: 'rig-controls' },
-        el('button', { class: 'btn-primary', type: 'button', 'data-skip-boot': '', text: 'Start', onclick: finishBoot }),
-        el('span', { class: 'rig-print ml-auto', 'data-clock': '', text: clockText() }),
-        el('button', { class: 'btn-secondary', type: 'button', text: 'Skip the boot sequence', onclick: finishBoot }),
+        el('button', { class: 'btn-primary', type: 'button', text: 'Open the studio', onclick: () => go('#/studio') }),
       ),
     ),
   );
 }
-
-let bootDone = false;
-let bootTimer = null;
-
-function finishBoot() {
-  if (bootDone) return;
-  bootDone = true;
-  if (bootTimer) { clearInterval(bootTimer); bootTimer = null; }
-  window.removeEventListener('keydown', bootKeySkip);
-  window.removeEventListener('pointerdown', bootKeySkip);
-  render();
-}
-
-function bootKeySkip() { finishBoot(); }
-
-function startBoot() {
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
-  // A deep link lands on its own screen; the boot sequence is for a visit with
-  // no route at all, and a viewer who asked for less motion never sees it
-  // typed out.
-  if (reduced.matches || window.location.hash) { bootDone = true; return; }
-  let revealed = 0;
-  renderBoot(revealed);
-  window.addEventListener('keydown', bootKeySkip);
-  window.addEventListener('pointerdown', bootKeySkip);
-  bootTimer = setInterval(() => {
-    revealed += 1;
-    if (revealed > BOOT_LINES.length) { finishBoot(); return; }
-    renderBoot(revealed);
-  }, 160);
-  setTimeout(() => { if (!bootDone) finishBoot(); }, 160 * (BOOT_LINES.length + 2));
-}
-
-function renderBoot(revealed) {
-  app.replaceChildren(bootScreen(revealed));
-}
-
-/* ── Routing ───────────────────────────────────────────────────────────── */
 
 function renderUnknown() {
-  return el('section', { class: 'rig-window', 'data-unknown': '' },
-    el('div', { class: 'rig-window-bar' }, el('strong', { class: 'text-body', text: 'GameWatch' })),
-    el('div', { class: 'rig-window-body' },
-      el('h2', { class: 'text-heading', text: 'That is not a screen on this handheld' }),
-      el('p', { class: 'text-body text-muted', text: 'The address you followed does not match a screen here.' }),
-      el('button', {
-        class: 'btn-primary', type: 'button', text: 'Back to the Arcade',
-        onclick: () => { unlockAudio(); go('#/'); },
-      }),
+  return el('main', { class: 'st-root', 'data-unknown': '' },
+    el('section', { class: 'rig-window st-glass' },
+      el('div', { class: 'rig-window-bar' }, el('strong', { class: 'text-body', text: APP_NAME })),
+      el('div', { class: 'rig-window-body' },
+        el('h2', { class: 'text-heading', text: 'That is not a screen in this studio' }),
+        el('p', { class: 'text-body text-muted', text: 'The address you followed does not match a screen here. The handheld arcade this app used to be is gone.' }),
+        el('button', { class: 'btn-primary', type: 'button', 'data-back-to-studio': '', text: 'Back to the studio', onclick: () => go('#/studio') }),
+      ),
     ),
   );
 }
 
 function renderFailure() {
-  const err = watch.failure;
+  const err = studio.failure;
   const message = err instanceof ApiError && err.status === 401
-    ? 'GameWatch answers only inside Homeroom, because it needs to know whose handheld it is.'
-    : 'GameWatch could not read what you had stored. Your runs and settings are still there.';
-  return shell(el('section', { class: 'rig-window' },
-    el('div', { class: 'rig-window-bar' }, el('strong', { class: 'text-body', text: 'GameWatch' })),
-    el('div', { class: 'rig-window-body' },
-      el('div', { class: 'state-error' },
-        el('h2', { class: 'text-heading', text: 'The handheld did not answer' }),
-        el('p', { class: 'text-body text-muted', text: message }),
-        el('button', {
-          class: 'btn-primary', type: 'button', text: 'Try again',
-          onclick: async () => { await loadIntoState(); render(); },
-        }),
+    ? 'The studio answers only inside Homeroom, because it needs to know whose project it is.'
+    : 'The studio could not read your project. It is still there.';
+  return el('main', { class: 'st-root' },
+    el('section', { class: 'rig-window st-glass' },
+      el('div', { class: 'rig-window-bar' }, el('strong', { class: 'text-body', text: APP_NAME })),
+      el('div', { class: 'rig-window-body' },
+        el('div', { class: 'state-error' },
+          el('h2', { class: 'text-heading', text: 'The studio did not answer' }),
+          el('p', { class: 'text-body text-muted', text: message }),
+          el('button', {
+            class: 'btn-primary', type: 'button', text: 'Try again',
+            onclick: async () => { await loadIntoState(); render(); },
+          }),
+        ),
       ),
     ),
-  ));
+  );
 }
 
 function renderLoading() {
-  return shell(el('section', { class: 'rig-window' },
-    el('div', { class: 'rig-window-bar' }, el('strong', { class: 'text-body', text: 'GameWatch' })),
-    el('div', { class: 'rig-window-body' },
-      el('div', { class: 'skeleton h-6 w-40' }),
-      el('div', { class: 'skeleton h-11 w-full' }),
-      el('div', { class: 'skeleton h-11 w-full' }),
+  return el('main', { class: 'st-root' },
+    el('section', { class: 'rig-window st-glass' },
+      el('div', { class: 'rig-window-bar' }, el('strong', { class: 'text-body', text: APP_NAME })),
+      el('div', { class: 'rig-window-body' },
+        el('div', { class: 'skeleton h-6 w-40' }),
+        el('div', { class: 'skeleton h-11 w-full' }),
+        el('div', { class: 'skeleton h-40 w-full' }),
+      ),
     ),
-  ));
+  );
 }
 
-let playHandle = null;
+/* ── Routing ───────────────────────────────────────────────────────────── */
 
 function render() {
-  if (!bootDone) { renderBoot(0); return; }
-  if (!watch.ready) { app.replaceChildren(renderLoading()); return; }
-  if (watch.failure) { app.replaceChildren(renderFailure()); return; }
+  if (!studio.ready) { app.replaceChildren(renderLoading()); return; }
+  if (studio.failure) { app.replaceChildren(renderFailure()); return; }
 
   const { parts, params } = parseHash();
   const first = parts[0] || '';
+  if (first === 'about') { app.replaceChildren(renderAbout()); return; }
+  if (first && first !== 'studio') { app.replaceChildren(renderUnknown()); return; }
 
-  // Whatever comes next, a title that was running stops now: leaving the play
-  // screen ends its loop, and a stale one must never keep drawing. The banner's
-  // own timer stops with it, so a route change never leaves it sliding.
-  if (playHandle) { playHandle.stop(); playHandle = null; }
-  stopHero();
-
-  if (first === 'how') {
-    const title = findTitle(parts[1]);
-    if (!title) { app.replaceChildren(shell(renderUnknown())); return; }
-    const slots = watch.saves.filter((s) => s.gameId === title.id);
-    const best = slots.reduce((top, s) => Math.max(top, Number(s.highScore) || 0), 0);
-    app.replaceChildren(renderHowTo(title, {
-      state: { score: best },
-      onBack: () => go('#/'),
-      onRun: () => startTitle(title.id, null),
-    }));
+  const second = parts[1] || '';
+  const third = parts[2] || '';
+  studio.sheet = { kind: null, options: null };
+  let focus = null;
+  if (second === 'library') {
+    if (params.has('q')) studio.query = params.get('q') || '';
+    focus = '[data-library]';
+  } else if (second === 'clips' && third) {
+    if (studio.media.some((m) => m.id === third)) selectSilently(third);
+    focus = '[data-stage]';
+  } else if (second === 'inspector') {
+    studio.tab = TABS.some((t) => t.id === third) ? third : 'video';
+    focus = '[data-inspector]';
+  } else if (second === 'timeline') {
+    focus = '[data-timeline]';
+  } else if (second === 'assistant') {
+    focus = '[data-assistant]';
+  } else if (second === 'export') {
+    studio.sheet = { kind: 'export', options: null };
+  } else if (second === 'generate' && GENERATION_KINDS[third]) {
+    const options = {};
+    for (const key of ['sfx', 'voice', 'tone', 'language']) if (params.has(key)) options[key] = params.get(key);
+    studio.sheet = { kind: third, options };
+  } else if (second) {
+    app.replaceChildren(renderUnknown());
     return;
   }
 
-  if (first === 'play') {
-    const title = findTitle(parts[1]);
-    if (!title) { app.replaceChildren(shell(renderUnknown())); return; }
-    app.replaceChildren(shell(renderPlayRoute(parts, params), { windowLabel: title.title, moduleId: title.id }));
-    return;
+  app.replaceChildren(renderStudio(studio, handlers));
+  if (focus) {
+    const node = document.querySelector(focus);
+    if (node && typeof node.scrollIntoView === 'function') node.scrollIntoView({ block: 'start' });
   }
-
-  if (captureAction && first !== 'settings') captureAction = null;
-  if (settingsDraft && first !== 'settings') settingsDraft = null;
-  if (first !== 'manage') { manageAdding = false; }
-
-  const id = first === '' ? 'arcade' : first;
-  const known = MODULES.some((m) => m.id === id) || id === 'admin' || id === 'manage';
-  if (first && !known) { app.replaceChildren(shell(renderUnknown())); return; }
-
-  let content;
-  let label;
-  if (id === 'arcade') { content = renderArcade(params); label = moduleById('arcade').title; }
-  else if (id === 'terminal') { content = renderTerminal(); label = moduleById('terminal').title; }
-  else if (id === 'ftp') { content = renderFtp(); label = moduleById('ftp').title; }
-  else if (id === 'os') { content = renderOs(); label = moduleById('os').title; }
-  else if (id === 'features') { content = renderFeatures(); label = moduleById('features').title; }
-  else if (id === 'settings') { content = renderSettings(); label = moduleById('settings').title; }
-  else if (id === 'manage') {
-    const second = parts[1] || '';
-    if (second === 'banner') { content = renderBannerScreen(); label = 'The banner'; }
-    else { content = renderManager(params); label = 'Manage titles'; }
-  } else { content = renderAdmin(); label = 'Titles you added'; }
-
-  app.replaceChildren(shell(content, { windowLabel: label, moduleId: id === 'manage' ? 'arcade' : id }));
-
-  paintGlass(watch.settings);
-  if (id === 'settings') requestAnimationFrame(() => applyDraft());
 }
 
-/* ── Painting the Settings preview ─────────────────────────────────────── */
-
-// One picture per preview canvas, kept so a slider drag does not rebuild it.
-const previews = new WeakMap();
-function pictureFor(canvas) {
-  let picture = previews.get(canvas);
-  if (!picture) {
-    picture = createPicture(canvas);
-    previews.set(canvas, picture);
-  }
-  return picture;
+function selectSilently(id) {
+  studio.selection.mediaId = id;
+  const clip = studio.clips.find((c) => c.mediaId === id);
+  studio.selection.clipId = clip ? clip.id : studio.selection.clipId;
+  if (clip && !studio.playing) studio.playhead = clip.startMs;
 }
 
 /* ── Boot ──────────────────────────────────────────────────────────────── */
 
 async function loadIntoState() {
   try {
-    const me = await loadWatch();
-    watch.username = me.username || '';
-    watch.signedIn = !!me.signedIn;
-    watch.settings = normalizeSettings(me.settings);
-    const merged = Object.assign({}, DEFAULT_BINDINGS);
-    const incoming = me.bindings || {};
-    for (const key of Object.keys(DEFAULT_BINDINGS)) {
-      if (typeof incoming[key] === 'string' && incoming[key]) merged[key] = incoming[key];
-    }
-    watch.bindings = merged;
-    watch.saves = Array.isArray(me.saves) ? me.saves : [];
-    watch.snapshots = Array.isArray(me.snapshots) ? me.snapshots : [];
-    watch.skin = me.skin || 'classic';
-    watch.transcript = Array.isArray(me.transcript) ? me.transcript : [];
-    if (Number.isFinite(Number(me.retentionDays))) watch.retentionDays = Number(me.retentionDays);
-    // The Arcade is drawn from the titles the app holds, so they arrive on the
-    // same round trip. A titles read that fails leaves the eight built-in
-    // defaults in place (registerTitles below) and the Arcade says so, rather
-    // than drawing a banner with no slides.
-    const loaded = Array.isArray(me.titles) ? me.titles : [];
-    watch.titles = registerTitles(loaded.length ? loaded : watch.titles);
-    watch.slides = Array.isArray(me.slides) ? me.slides : [];
-    watch.titlesFailed = !loaded.length;
-    watch.catalogue = await listCatalogue();
-    watch.failure = null;
+    applyStudio(await loadStudio());
+    studio.uploads = uploadsAvailable();
+    // The first selected clip is the one with a trim, so the trim handles have
+    // something to show; the playhead starts where it starts.
+    const trimmed = studio.clips.find((c) => c.trimInMs && c.mediaId);
+    if (trimmed) { studio.selection.clipId = trimmed.id; studio.selection.mediaId = trimmed.mediaId; studio.playhead = trimmed.startMs; }
+    await refreshUsage();
+    studio.failure = null;
   } catch (err) {
-    watch.failure = err;
+    studio.failure = err;
   } finally {
-    watch.ready = true;
+    studio.ready = true;
   }
 }
 
@@ -1877,17 +682,5 @@ window.addEventListener('hashchange', () => {
   window.scrollTo(0, 0);
 });
 
-window.addEventListener('keydown', (event) => {
-  if (captureAction) {
-    if (event.key === 'Escape') { captureAction = null; render(); return; }
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
-    event.preventDefault();
-    assignKey(captureAction, event.key);
-  }
-});
-
-startClock();
-startBoot();
-loadIntoState().then(() => {
-  if (bootDone) render();
-});
+render();
+loadIntoState().then(render);

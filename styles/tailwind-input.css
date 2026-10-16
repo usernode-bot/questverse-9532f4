@@ -13,45 +13,46 @@
 @tailwind utilities;
 
 /* ── Colour tokens ────────────────────────────────────────────────────────
- * GameWatch is drawn as its own scene: ONE fixed look, a handheld whose
- * panel is the whole point. It is the documented exception for a game (see
+ * Homeroom Studio is drawn as its own console: ONE fixed dark look. It is
+ * the documented exception for an app that draws its own scene (see
  * "## Design" in CLAUDE.md). :root and .dark carry the SAME values, so the
  * app renders identically in Homeroom's light and dark themes. Do not "fix"
  * this by adding a light look.
  *
- * The palette: a near-black shell, a lifted grey bezel, the panel's own
- * green-grey LCD for the screen itself, a phosphor-green accent for the one
- * action, an amber lamp for a caution, and a signal cyan used for anything
- * the handheld PRINTS in its own voice (the boot log, a terminal reply, the
- * readouts under a panel).
- *
- * Three skins sit on top of these values (classic, silver, night). They are
- * shades of the same scene, not a second look: a skin swaps the panel and
- * shell tones and nothing else, so every component below is unchanged.
+ * The palette: a two-tone charcoal ground, translucent glass panels, a neon
+ * purple accent for the one primary action, a magenta lamp for anything
+ * simulated and for a caution, and an indigo signal for anything the studio
+ * PRINTS in its own voice (the readout lines, the AI meter's figure, the
+ * waveform, the ruler ticks).
  */
 @layer base {
   :root,
   .dark {
-    --ground: 18 18 18;       /* brushed near-black metal: the page behind the glass */
-    --surface: 30 30 30;      /* windows, lists, fields, catalog rows */
-    --raised: 42 39 36;       /* title bars, hovers, badges: a warmer raised metal */
-    --fg: 246 244 240;        /* text */
-    --muted: 169 161 151;     /* secondary text */
-    --line: 74 60 38;         /* borders, dividers, skeletons: a bronze hairline */
-    --edge: 201 138 60;       /* the metal edge: a highlight along a brushed panel */
-    --accent: 245 180 73;     /* amber: the one primary action, the machine's own lamp */
-    --on-accent: 26 18 6;     /* text on the accent */
-    --danger: 248 113 113;    /* alarm red: a destructive action, a game ending */
+    --ground: 13 15 18;       /* #0D0F12: the page and the panel behind the content */
+    --surface: 24 27 33;      /* cards, the inspector groups, the media rows, fields */
+    --raised: 34 38 46;       /* title bars, the tool row, the meter's plate, hovers, lanes */
+    --fg: 240 242 248;        /* text */
+    --muted: 154 161 176;     /* secondary text, the badges, the ruler */
+    --line: 60 66 80;         /* dividers, panel borders, the scrub track, the skeleton */
+    --edge: 139 92 246;       /* the glass rim, the selected clip's outline, placeholder blocks */
+    --accent: 139 92 246;     /* #8B5CF6 neon purple: the one primary action, the playhead */
+    --on-accent: 12 8 24;     /* text on the purple fill */
+    --danger: 248 113 113;    /* alarm red: removing a clip, a server fault */
     --on-danger: 36 6 6;      /* text on danger */
-    --focus: 245 180 73;      /* amber: the keyboard focus ring */
-    --signal: 232 200 150;    /* pale bronze: what the rig prints, the readouts */
-    --amber: 201 138 60;      /* bronze: the caution lamp, the genre box, the badge */
-    --on-amber: 24 14 4;      /* text on the caution lamp */
+    --focus: 236 72 153;      /* magenta: the keyboard focus ring */
+    --signal: 167 139 250;    /* indigo: what the studio prints, the meter, the waveform */
+    --amber: 236 72 153;      /* #EC4899 magenta: the simulation lamp, the caution */
+    --on-amber: 24 6 16;      /* text on the magenta lamp */
   }
   /* el.hidden = true hides an element even when a class gives it a display
      (flex, the components below). */
   [hidden]:where(:not([hidden="until-found"])) {
     display: none !important;
+  }
+  /* Range inputs take the accent, so a slider and the scrub bar read as the
+     app's own without a custom thumb. */
+  input[type="range"] {
+    accent-color: rgb(var(--accent));
   }
 }
 
@@ -61,9 +62,8 @@
  * text-title, text-heading, text-body and text-small (tailwind.config.js).
  */
 @layer components {
-  /* Buttons: one primary per view; every window's main action is the
-     primary of that window. At least 44 px each way, so they are easy to
-     tap. */
+  /* Buttons: one primary per view; the studio's is Export, a sheet's is its
+     own action. At least 44 px each way, so they are easy to tap. */
   .btn-primary,
   .btn-secondary {
     @apply inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg px-4 text-body font-medium
@@ -80,11 +80,10 @@
   /* Text inputs, selects and textareas: <input class="field">, 44 px tall. */
   .field {
     @apply block min-h-11 w-full rounded-lg border border-line bg-surface px-3 py-2 text-body text-fg
-      placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-focus;
+      placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-focus disabled:opacity-50;
   }
 
-  /* A grouped list: <ul class="list"> of <li class="list-row">. The usual way
-     to show several things; prefer it to a stack of cards. */
+  /* A grouped list: <ul class="list"> of <li class="list-row">. */
   .list {
     @apply divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface;
   }
@@ -92,8 +91,7 @@
     @apply flex min-h-11 items-center gap-3 px-4 py-3;
   }
 
-  /* A card: one self-contained thing, usually something you tap. Never put
-     a card inside a card or a .list. */
+  /* A card: one self-contained thing. Never put a card inside a card. */
   .card {
     @apply rounded-xl border border-line bg-surface p-4;
   }
@@ -112,352 +110,345 @@
     @apply flex flex-col items-center gap-2 px-4 py-8 text-center;
   }
 
-  /* ── GameWatch pieces ──────────────────────────────────────────────────
-   * Built from the tokens above; nothing here invents a colour or a font. */
+  /* ── The pieces kept from the handheld, restyled for the studio ──────── */
 
-  /* The handheld: a stack of shell, bezel, panel and controls. The whole
-     app lives inside the panel. The scanline layer and the corner falloff
-     are drawn here so no screen has to repeat them. */
-  .rig {
-    @apply relative isolate flex min-h-screen flex-col gap-3 bg-ground px-3 py-3 sm:px-6 sm:py-6;
-  }
-  .rig-bezel {
-    @apply mx-auto flex w-full max-w-5xl flex-1 flex-col gap-3 rounded-3xl border border-edge/40 bg-surface p-3 shadow-[inset_0_1px_0_rgb(var(--edge)/0.25)] sm:p-4;
-  }
-  .rig-glass {
-    @apply relative flex flex-1 flex-col gap-4 overflow-hidden rounded-2xl border border-line bg-ground p-4 sm:p-6;
-  }
-  /* Scanlines: a pure-CSS repeating gradient over the glass, scaled by the
-     viewer's Scanline setting through --rig-scanline. Purely decorative, so
-     it never takes a pointer event. */
-  .rig-scanlines {
-    @apply pointer-events-none absolute inset-0;
-    background-image: repeating-linear-gradient(
-      to bottom,
-      rgb(0 0 0 / calc(var(--rig-scanline, 0) / 100)) 0px,
-      rgb(0 0 0 / calc(var(--rig-scanline, 0) / 100)) 1px,
-      transparent 1px,
-      transparent 3px
-    );
-  }
-  /* The rounded-corner falloff of an LCD panel, in the app's own ground
-     colour so it never fights the content. Its strength is the viewer's
-     Curvature setting, mirrored here from the same number the picture
-     pipeline uses, so the frame and the screen inside it agree. */
-  .rig-vignette {
-    @apply pointer-events-none absolute inset-0;
-    background: radial-gradient(
-      calc(150% - var(--rig-curvature, 20) * 1%) 120% at 50% 50%,
-      transparent 40%,
-      rgb(var(--ground) / calc(0.5 + var(--rig-curvature, 20) / 100)) 100%
-    );
-  }
-  /* The controls under the panel: the running screen's name, the simulation
-     lamp and the clock. */
-  .rig-controls {
-    @apply flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-raised px-3 py-2;
-  }
-
-  /* The module bar: the six dashboard modules, across the top of the panel.
-     A module is a plain button until it is the one showing. */
-  .rig-nav {
-    @apply flex flex-wrap items-center gap-1 rounded-xl border border-line bg-raised px-2 py-2;
-  }
-  .rig-nav-item {
-    @apply inline-flex min-h-11 items-center rounded-lg border border-transparent px-3 text-body text-muted
-      hover:bg-surface hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
-  }
-  .rig-nav-item-on {
-    @apply border-line bg-surface font-medium text-accent;
-  }
-
-  /* A full-width row inside a module window. */
-  .rig-entry {
-    @apply flex w-full items-start gap-3 rounded-lg border border-line bg-surface px-3 py-3 text-left
-      text-body text-fg hover:bg-raised focus-visible:outline-none focus-visible:ring-2
-      focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-ground;
-  }
-
-  /* A window: a title bar over a body. The rig has one window open at a
-     time, filling the glass. */
+  /* A window: a title bar over a body. The sheets and the about screen use it. */
   .rig-window {
-    @apply flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-surface;
+    @apply flex min-h-0 flex-col overflow-hidden rounded-2xl border border-line bg-surface;
   }
   .rig-window-bar {
-    @apply flex flex-wrap items-center justify-between gap-2 border-b border-line bg-raised px-3 py-2;
+    @apply flex flex-wrap items-center justify-between gap-2 border-b border-line bg-raised px-4 py-3;
   }
   .rig-window-body {
-    @apply flex flex-1 flex-col gap-4 overflow-y-auto p-4;
+    @apply flex flex-col gap-4 p-4;
   }
 
-  /* Anything the rig PRINTS in its own voice: the boot log, a prompt reply,
-     a readout line. Monospace, in the signal colour. */
+  /* Anything the studio PRINTS in its own voice: a readout line, the AI
+     meter's figure, a timecode. Monospace, in the signal colour. */
   .rig-print {
     @apply whitespace-pre-wrap font-mono text-small leading-relaxed text-signal;
   }
-  /* A readout block of printed lines in a bracketed border. The app's
-     signature element. */
+  /* A readout block of printed lines. The app's signature element. */
   .rig-readout {
-    @apply rounded-lg border border-line bg-ground px-3 py-3;
-  }
-  /* The simulated DOS prompt: the transcript, then the input line. */
-  .rig-prompt {
-    @apply flex min-h-0 flex-1 flex-col gap-2 rounded-lg border border-line bg-ground p-3;
-  }
-  .rig-prompt-log {
-    @apply flex flex-1 flex-col gap-1 overflow-y-auto font-mono text-small leading-relaxed;
-  }
-  .rig-prompt-input {
-    @apply block min-h-11 w-full rounded-lg border border-line bg-surface px-3 py-2 font-mono text-body
-      text-fg placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-focus;
+    @apply flex flex-col gap-1 rounded-lg border border-line bg-ground px-3 py-3;
   }
 
-  /* The simulation lamp. Every simulated readout on the rig carries it, so a
-     viewer never mistakes the rig's own output for real hardware. */
+  /* The simulation lamp. Every simulated surface carries it, so a viewer
+     never mistakes a drawn plate, a placeholder or an export for the real
+     thing. */
   .rig-sim {
     @apply inline-flex items-center rounded-full border border-amber px-2.5 py-0.5 text-small font-medium
       text-amber;
   }
-
-  /* The handheld's own keypad under a running panel: nine keys, each showing
-     the key it is mapped to over the name of what it does. */
-  .rig-keypad {
-    @apply flex flex-col gap-3;
-  }
-  .rig-keypad-row {
-    @apply flex flex-wrap gap-2;
-  }
-  .rig-button {
-    @apply inline-flex min-h-11 min-w-11 flex-col items-start justify-center gap-0.5 rounded-lg border
-      border-line bg-surface px-3 py-2 text-fg hover:bg-raised focus-visible:outline-none
-      focus-visible:ring-2 focus-visible:ring-focus;
+  /* Its counterpart on the one real action: the Platform AI tag. */
+  .st-real {
+    @apply inline-flex items-center rounded-full border border-signal px-2.5 py-0.5 text-small font-medium
+      text-signal;
   }
 
-  /* The LCD panel a built-in title draws on. The canvas fills it, the
-     simulation lamp sits on it, and the readout sits under it. */
-  .rig-screen {
-    @apply relative w-full overflow-hidden rounded-lg border border-line bg-ground;
-  }
-  .rig-canvas {
-    @apply relative block h-auto w-full;
-  }
-  /* An uploaded bezel picture sits behind the panel as art around it. The
-     panel itself stays the drawn simulation, so this frames it rather than
-     replacing it. */
-  .rig-bezel-art {
-    @apply pointer-events-none absolute inset-0 h-full w-full object-cover opacity-30;
-    image-rendering: pixelated;
-  }
-
-  /* A small transient notice, used for save confirmations and conflicts. */
+  /* A small transient notice, used when the native kit's toast is absent. */
   .toast {
     @apply fixed inset-x-0 bottom-4 z-50 mx-auto flex w-fit max-w-[calc(100%-2rem)] items-center gap-2
       rounded-full border border-line bg-raised px-4 py-2 text-small text-fg;
   }
 
-  /* The how-to-play sheet: a full-screen layer over the panel. */
+  /* A sheet: a full-screen layer over the studio, for a generation or the
+     export panel. */
   .rig-sheet {
-    @apply fixed inset-0 z-50 flex flex-col bg-ground;
+    @apply fixed inset-0 z-40 flex flex-col overflow-y-auto bg-ground/80 p-3 backdrop-blur-sm sm:p-6;
   }
   .rig-sheet-panel {
-    @apply mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 overflow-y-auto p-4 sm:p-6;
+    @apply mx-auto flex w-full max-w-2xl flex-col gap-4;
   }
 
-  /* ── The Arcade ────────────────────────────────────────────────────────
-   * The hero banner, the category pills and the catalog rows. Dark brushed
-   * metal, one amber lamp, a bronze hairline: nothing here invents a colour. */
+  /* ── The studio ──────────────────────────────────────────────────────── */
 
-  /* The brushed-metal grain. A pure-CSS brushed texture over the ground, so
-     the shell reads as a machined panel rather than a flat fill. It never
-     takes a pointer event and it is one layer, not a background image. */
-  .gw-grain {
-    @apply pointer-events-none absolute inset-0;
-    background-image:
-      repeating-linear-gradient(90deg, rgb(255 255 255 / 0.012) 0px, rgb(255 255 255 / 0.012) 1px, transparent 1px, transparent 3px),
-      repeating-linear-gradient(90deg, rgb(0 0 0 / 0.06) 0px, rgb(0 0 0 / 0.06) 2px, transparent 2px, transparent 5px);
+  /* The one glassmorphism piece: a low-alpha surface with a blur and a lit
+     rim. Applied to the top bar, the panels, the timeline and the assistant. */
+  .st-glass {
+    @apply border border-line bg-surface/80 shadow-[inset_0_1px_0_rgb(var(--edge)/0.25)] backdrop-blur-md;
   }
-
-  /* The header row: the wordmark, its own amber label, the menu button and the
-     manager link. */
-  .gw-header {
-    @apply flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-raised px-3 py-2;
+  .st-root {
+    @apply mx-auto flex min-h-screen w-full max-w-[1400px] flex-col gap-3 p-3;
   }
-  .gw-wordmark {
-    @apply font-mono text-heading font-bold tracking-[0.18em] text-accent;
+  /* Three columns from 1024 px up; narrower screens stack the regions. */
+  .st-body {
+    @apply grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)_300px];
   }
-  .gw-menu-button {
-    @apply inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-line bg-surface
-      text-body text-fg hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  .st-side {
+    @apply flex min-w-0 flex-col gap-3;
+  }
+  .st-panel {
+    @apply flex min-w-0 flex-col gap-3 rounded-2xl p-3;
+  }
+  .st-sample-note {
+    @apply rounded-lg border border-line bg-raised px-3 py-2;
   }
 
-  /* The hero banner: one slide at a time, sliding on its own, with an arrow at
-     each end. The picture fills it and a dark wash keeps the words readable. */
-  .gw-hero-wrap {
-    @apply flex flex-col gap-2;
+  /* The top bar: the breadcrumb, undo and redo, the tool row, the avatars,
+     the AI meter and Export. */
+  .st-topbar {
+    @apply flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2;
   }
-  .gw-hero {
-    @apply relative flex min-h-56 flex-col justify-end overflow-hidden rounded-2xl border border-line bg-surface;
+  .st-crumb {
+    @apply flex min-w-0 items-center gap-2 text-small text-muted;
   }
-  .gw-hero-art {
-    @apply absolute inset-0;
+  .st-icon {
+    @apply inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-lg border border-line
+      bg-raised px-2 text-body text-fg hover:brightness-110 focus-visible:outline-none focus-visible:ring-2
+      focus-visible:ring-focus disabled:cursor-not-allowed disabled:opacity-50;
   }
-  .gw-hero-img,
-  .gw-hero-art-canvas {
-    @apply block h-full w-full object-cover;
-    image-rendering: pixelated;
+  .st-icon-on {
+    @apply border-accent text-accent;
   }
-  .gw-hero-drawn {
-    @apply absolute inset-0 flex items-center justify-center bg-ground p-4;
+  .st-tools {
+    @apply flex flex-wrap items-center gap-1 rounded-full border border-line bg-raised px-2 py-1 lg:mx-auto;
   }
-  /* The wash under the words, so the title and the line stay legible over any
-     picture while the art still shows through. */
-  .gw-hero::after {
-    content: '';
-    @apply pointer-events-none absolute inset-0;
-    background: linear-gradient(to top, rgb(var(--ground) / 0.94) 0%, rgb(var(--ground) / 0.55) 42%, transparent 100%);
-  }
-  .gw-hero-arrow {
-    @apply absolute top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border
-      border-line bg-ground/80 text-title leading-none text-fg hover:bg-raised hover:text-accent
+  .st-tool {
+    @apply inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-small text-muted hover:text-fg
       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
   }
-  .gw-hero-arrow-prev { @apply left-2; }
-  .gw-hero-arrow-next { @apply right-2; }
-  .gw-hero-body {
-    @apply relative z-10 flex flex-col items-start gap-2 p-4 sm:p-5;
+  .st-tool-on {
+    @apply font-medium text-fg;
   }
-  .gw-hero-title {
-    @apply text-title text-fg;
+  .st-tool-dot {
+    @apply hidden h-2 w-2 rounded-full bg-accent;
   }
-  .gw-hero-line {
-    @apply max-w-prose text-body text-muted;
+  .st-tool-on .st-tool-dot {
+    @apply inline-block;
   }
-  /* The glass badge: a translucent plate with an amber rim, the one piece of
-     glassmorphism in the app. */
-  .gw-hero-badge {
-    @apply inline-flex items-center rounded-full border border-amber/60 bg-surface/50 px-3 py-1 font-mono
-      text-small font-medium tracking-[0.12em] text-amber backdrop-blur-sm;
+  .st-avatars {
+    @apply flex items-center;
   }
-  .gw-hero-actions {
-    @apply relative z-10 flex flex-wrap gap-2 p-4 pt-0 sm:p-5 sm:pt-0;
+  .st-avatar {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-full border border-amber/60 bg-raised text-small
+      font-medium text-fg;
   }
-  .gw-hero-dots {
+  .st-avatar + .st-avatar {
+    @apply -ml-2;
+  }
+
+  /* The AI usage meter: a 44 px plate, the label, the printed figure and a
+     thin bar that turns magenta at 90% of the cap. */
+  .st-meter {
+    @apply inline-flex min-h-11 flex-col justify-center rounded-lg border border-line bg-raised px-3 py-1;
+  }
+  .st-meter-line {
+    @apply flex items-baseline gap-1;
+  }
+  .st-meter-figure {
+    @apply font-semibold;
+  }
+  .st-meter-bar {
+    @apply relative mt-1 h-1 w-32 overflow-hidden rounded-full bg-line;
+  }
+  .st-meter-fill {
+    @apply absolute inset-y-0 left-0 rounded-full bg-signal;
+  }
+  .st-meter-warn .st-meter-fill {
+    @apply bg-amber;
+  }
+  .st-meter-warn .st-meter-figure {
+    @apply text-amber;
+  }
+
+  /* The media library: one thumbnail per row with its duration badge, its
+     caption and its selected state. */
+  .st-lib-list {
+    @apply flex flex-col gap-2 lg:max-h-[28rem] lg:overflow-y-auto;
+  }
+  .st-lib-list > li {
+    @apply relative;
+  }
+  .st-lib-thumb {
+    @apply relative flex w-full flex-col overflow-hidden rounded-xl border border-line bg-raised text-left
+      hover:border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  }
+  .st-lib-thumb-on {
+    @apply border-accent ring-1 ring-accent;
+  }
+  .st-lib-art {
+    @apply relative block h-20 w-full;
+    background: linear-gradient(120deg, rgb(var(--edge) / 0.45), rgb(var(--surface)));
+  }
+  .st-lib-img {
+    @apply absolute inset-0 h-full w-full object-cover;
+  }
+  .st-lib-badge {
+    @apply absolute left-2 top-14 rounded-md bg-ground/70 px-1.5 text-small text-fg;
+  }
+  .st-lib-cap {
+    @apply flex min-h-11 flex-col gap-1 px-2 py-2 text-small text-muted;
+  }
+  .st-lib-sim {
+    @apply text-small text-amber;
+  }
+  .st-lib-remove {
+    @apply absolute right-1 top-1 inline-flex h-11 w-11 items-center justify-center rounded-lg bg-ground/70
+      text-body text-danger hover:bg-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  }
+
+  /* The preview player: the frame, the scrub row and the lamp. */
+  .st-stage {
+    @apply flex min-w-0 flex-col gap-3 rounded-2xl p-3;
+  }
+  .st-stage-frame {
+    @apply relative flex aspect-video w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl
+      px-4 text-center;
+    background: linear-gradient(135deg, rgb(var(--edge) / 0.5), rgb(var(--surface)) 60%);
+  }
+  .st-stage-title {
+    @apply max-w-full break-words text-heading text-fg;
+  }
+  .st-scrub-row {
     @apply flex flex-wrap items-center gap-2;
   }
-  .gw-hero-dot {
-    @apply h-2.5 w-2.5 rounded-full border border-line bg-surface hover:bg-raised
+  .st-scrub {
+    @apply h-11 min-w-32 flex-1 cursor-pointer;
+  }
+  .st-timecode {
+    @apply text-body;
+  }
+
+  /* The inspector: the tab row, a control group and its two shapes. */
+  .st-tabs {
+    @apply flex flex-wrap gap-1 border-b border-line;
+  }
+  .st-tab {
+    @apply inline-flex min-h-11 items-center border-b-2 border-transparent px-2 text-small text-muted hover:text-fg
       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
   }
-  .gw-hero-dot-on {
-    @apply border-amber bg-amber;
+  .st-tab-on {
+    @apply border-accent font-medium text-fg;
+  }
+  .st-subtabs {
+    @apply flex flex-wrap gap-1;
+  }
+  .st-subtab {
+    @apply inline-flex min-h-11 items-center rounded-full border border-line px-3 text-small text-muted;
+  }
+  .st-subtab-on {
+    @apply border-accent text-fg;
+  }
+  .st-group {
+    @apply flex flex-col gap-1 rounded-xl border border-line bg-surface p-3;
+  }
+  .st-slider {
+    @apply h-11 w-full cursor-pointer;
+  }
+  .st-select {
+    @apply appearance-none bg-raised;
   }
 
-  /* The category pills and the add control: the Arcade's filter. */
-  .gw-pill {
-    @apply inline-flex min-h-11 items-center rounded-full border border-line bg-surface px-4 text-small
-      text-fg hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  /* The assistant widget. */
+  .st-assist {
+    @apply flex flex-col gap-3 rounded-2xl p-3;
   }
-  .gw-pill-on {
-    @apply border-amber bg-amber font-medium text-on-amber;
+  .st-assist-quick-list {
+    @apply grid gap-2 sm:grid-cols-2;
   }
-  .gw-pill-add {
-    @apply border-amber/60 font-medium text-amber;
+  .st-assist-quick {
+    @apply flex min-h-11 flex-col items-start gap-1 rounded-xl border border-line bg-raised px-3 py-2 text-left
+      hover:border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
   }
-  /* A control row's button chip in the manager: it says the row covers it. */
-  .gw-pill .sr-only:checked + span {
-    text-decoration: underline;
-    text-underline-offset: 3px;
+  .st-assist-log {
+    @apply flex max-h-64 flex-col gap-2 overflow-y-auto rounded-lg border border-line bg-ground p-3;
   }
-
-  /* The catalog: one row per title. The LCD thumbnail is what a person taps to
-     play, so it is drawn large and crisp. */
-  .gw-cat-list {
-    @apply flex flex-col gap-3;
+  .st-assist-turn {
+    @apply flex flex-col gap-0.5;
   }
-  .gw-cat-row {
-    @apply flex flex-col gap-3 rounded-xl border border-line bg-surface p-3 sm:flex-row sm:p-4;
+  .st-assist-turn-assistant {
+    @apply border-l-2 border-signal pl-2;
   }
-  .gw-thumb {
-    @apply relative flex w-28 shrink-0 flex-col items-start gap-1;
+  .st-assist-prompt {
+    @apply flex flex-wrap items-center gap-2;
   }
-  .gw-thumb-art {
-    @apply block h-auto w-full rounded border border-line bg-ground object-contain;
-    image-rendering: pixelated;
+  .st-assist-prompt .field {
+    @apply min-w-40 flex-1;
   }
-  /* The genre the title is filed under, as a boxed tag beside its name. */
-  .gw-cat-tag {
-    @apply inline-flex items-center rounded-md border border-amber px-2 py-0.5 text-small font-medium
-      text-amber;
-  }
-  /* A title's name, printed the way the machine prints it. */
-  .gw-cat-title {
-    @apply font-mono text-heading font-bold tracking-wide text-fg;
-  }
-  .gw-cat-detail {
-    @apply text-small text-muted;
-  }
-  /* PLATFORM: GAMEWATCH, the machine's own line on every row. */
-  .gw-platform {
-    @apply font-mono text-small tracking-[0.12em] text-signal;
-  }
-  .gw-howto {
-    @apply no-underline;
+  .st-assist-note {
+    @apply text-small text-fg;
   }
 
-  /* The footer under the catalog: the add control and the manager link. */
-  .gw-add-foot {
-    @apply flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-raised px-4 py-3;
+  /* The timeline: the ruler, one lane per track, a clip block with its trim
+     handles, the audio waveform and the playhead. */
+  .st-track {
+    @apply flex flex-col gap-2 rounded-2xl p-3;
   }
-
-  /* The banner's own editor rows in the manager. */
-  .gw-slide-row {
-    @apply flex flex-col gap-2 rounded-lg border border-line bg-surface p-3;
+  .st-lane {
+    @apply grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-2;
   }
-
-  /* The FTP tree: a read-only view of what the handheld holds. */
-  .gw-ftp {
-    @apply flex flex-col gap-1 overflow-x-auto rounded-lg border border-line bg-ground p-3;
+  .st-lane-head {
+    @apply flex min-h-11 flex-col justify-center gap-1 overflow-hidden;
   }
-  .gw-ftp-row {
-    @apply flex min-h-8 flex-wrap items-baseline gap-3;
+  .st-lane-btn {
+    @apply inline-flex h-5 w-5 items-center justify-center rounded border border-line text-[0.65rem] text-muted
+      hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-50;
   }
-
-  /* The Install UFW transcript: a scrolling block of printed lines. */
-  .gw-install-log {
-    @apply flex max-h-72 flex-col gap-1 overflow-y-auto;
+  .st-lane-btn-on {
+    @apply border-amber text-amber;
   }
-}
-
-/* ── Panel skins ──────────────────────────────────────────────────────────
- * The OS screen sets the handheld's skin, which repaints the shell, the
- * bezel and the panel. They are shades of the one fixed look, so nothing
- * here changes a component or a layout: only the token values.
- */
-@layer base {
-  .rig[data-skin="silver"] {
-    --ground: 44 44 46;
-    --surface: 68 68 70;
-    --raised: 92 88 84;
-    --fg: 244 242 238;
-    --muted: 186 180 172;
-    --line: 128 116 96;
-    --edge: 220 190 150;
-    --accent: 248 196 108;
-    --on-accent: 34 24 8;
-    --signal: 240 224 196;
-    --amber: 220 168 96;
+  .st-ruler {
+    @apply relative h-6 cursor-pointer overflow-hidden rounded-md border-b border-line;
   }
-  .rig[data-skin="night"] {
-    --ground: 10 10 12;
-    --surface: 20 20 24;
-    --raised: 30 28 30;
-    --fg: 234 230 222;
-    --muted: 148 142 132;
-    --line: 60 50 34;
-    --edge: 172 118 52;
-    --accent: 236 172 72;
-    --on-accent: 22 14 4;
-    --signal: 214 186 140;
-    --amber: 176 120 52;
+  .st-ruler-tick {
+    @apply absolute top-0 -translate-x-1/2 text-[0.65rem] text-muted;
+  }
+  /* A narrow screen shows every other tick, so the labels never overlap. */
+  .st-ruler-tick:nth-child(even) {
+    @apply hidden sm:block;
+  }
+  .st-ruler-tick:first-child {
+    @apply translate-x-0;
+  }
+  .st-ruler-tick:last-of-type {
+    @apply -translate-x-full;
+  }
+  .st-lane-body {
+    @apply relative min-h-11 cursor-crosshair select-none overflow-hidden rounded-lg border border-line bg-raised;
+    touch-action: none;
+  }
+  .st-lane-hidden {
+    @apply opacity-40;
+  }
+  .st-clip {
+    @apply absolute inset-y-1 flex cursor-pointer items-center overflow-hidden rounded-md border border-edge/60
+      bg-edge/40 px-2 text-small text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  }
+  .st-clip-on {
+    @apply border-2 border-fg;
+  }
+  .st-clip-text {
+    @apply border-line bg-raised;
+  }
+  .st-clip-transition {
+    @apply bg-amber/30 border-amber/60;
+  }
+  .st-clip-audio {
+    @apply border-line bg-ground;
+  }
+  .st-clip-label {
+    @apply relative z-10 truncate;
+  }
+  .st-clip-trimmed {
+    @apply absolute inset-y-0 left-0 bg-ground/60;
+    background-image: repeating-linear-gradient(135deg, rgb(var(--amber) / 0.5) 0 2px, transparent 2px 6px);
+  }
+  .st-clip-handle {
+    @apply absolute inset-y-0 z-20 w-3 cursor-ew-resize bg-amber;
+    touch-action: none;
+  }
+  .st-clip-handle-in {
+    @apply left-0 rounded-l;
+  }
+  .st-clip-handle-out {
+    @apply right-0 rounded-r;
+  }
+  .st-wave {
+    @apply absolute inset-x-2 inset-y-1.5 rounded;
+    background: repeating-linear-gradient(90deg, rgb(var(--signal) / 0.7) 0 2px, transparent 2px 5px);
+  }
+  .st-playhead {
+    @apply pointer-events-none absolute inset-y-0 z-30 w-0.5 bg-accent;
   }
 }
