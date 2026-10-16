@@ -60,7 +60,8 @@ export async function api(path, options) {
 }
 
 // Who is signed in and everything the handheld keeps for them, in one round
-// trip: the settings, the key mapping, the saves, the skin and the snapshots.
+// trip: the settings, the key mapping, the saves, the skin, the snapshots, the
+// Arcade's titles and the banner's own slide list.
 export async function loadWatch() {
   const body = await api('/api/me');
   return {
@@ -72,6 +73,8 @@ export async function loadWatch() {
     saves: (body && body.saves) || [],
     skin: (body && body.skin) || null,
     snapshots: (body && body.snapshots) || [],
+    titles: (body && body.titles) || [],
+    slides: (body && body.slides) || [],
   };
 }
 
@@ -89,16 +92,51 @@ export async function saveBindings(bindings) {
   return (body && body.bindings) || {};
 }
 
-/* ── The Arcade's own added titles (the catalogue) ──────────────────────── */
+/* ── The Arcade's titles ─────────────────────────────────────────────────
+ * The eight built-ins and every added title are rows now. `listTitles` is the
+ * whole collection; `saveTitle` is the manager's write.
+ */
+
+export async function listTitles() {
+  const body = await api('/api/titles');
+  return (body && body.titles) || [];
+}
+
+// A title's words, its control list and its art. Art is always an image URL
+// platform storage returned, never image bytes: the bytes go up through the
+// bridge and only the URL (and its file id, so a later cleanup can name it) is
+// stored here.
+export async function saveTitle(title) {
+  const body = await api('/api/titles/' + encodeURIComponent(title.id), {
+    method: 'PUT',
+    body: JSON.stringify(title),
+  });
+  return body && body.title;
+}
+
+export async function deleteTitle(id) {
+  await api('/api/titles/' + encodeURIComponent(id), { method: 'DELETE' });
+}
+
+/* ── The hero banner's slides (per person) ─────────────────────────────── */
+
+export async function listBanner() {
+  const body = await api('/api/banner');
+  return (body && body.slides) || [];
+}
+
+export async function saveBanner(slides) {
+  const body = await api('/api/banner', { method: 'PUT', body: JSON.stringify({ slides }) });
+  return (body && body.slides) || [];
+}
+
+/* ── The Arcade's own added titles (the older admin panel) ─────────────── */
 
 export async function listCatalogue() {
   const body = await api('/api/catalogue');
   return (body && body.entries) || [];
 }
 
-// A title's cover is an image URL in platform storage, never image bytes in
-// Postgres. The bytes go up through the bridge; only the returned URL is
-// stored.
 export async function addCatalogueEntry(entry) {
   const body = await api('/api/catalogue', { method: 'POST', body: JSON.stringify(entry) });
   return body && body.entry;
@@ -211,9 +249,22 @@ export function uploadsAvailable() {
   return !!(window.usernode && typeof window.usernode.uploadFile === 'function');
 }
 
-export async function uploadCover(file) {
+// Returns `{ url, fileId }`, or null when storage is not reachable or refused
+// the file. `fileId` is kept beside the URL so a later cleanup can name the
+// previous file after a replace (platform files are immutable, so a replace
+// uploads a new one rather than overwriting).
+export async function uploadArt(file) {
   if (!uploadsAvailable()) return null;
   const result = await window.usernode.uploadFile(file);
   const url = typeof result === 'string' ? result : (result && (result.url || result.href));
-  return typeof url === 'string' && /^https?:\/\//.test(url) ? url : null;
+  const fileId = result && typeof result === 'object'
+    ? (result.fileId || result.file_id || result.id || null) : null;
+  if (typeof url !== 'string' || !/^https?:\/\//.test(url)) return null;
+  return { url, fileId: fileId == null ? null : String(fileId) };
+}
+
+// Kept for the older admin panel, which only wants the URL.
+export async function uploadCover(file) {
+  const art = await uploadArt(file);
+  return art ? art.url : null;
 }

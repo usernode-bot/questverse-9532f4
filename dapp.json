@@ -1,5 +1,5 @@
 {
-  "description": "A simulated LCD handheld: eight original arcade titles, a Memory Card and a dashboard of simulated modules.",
+  "description": "A simulated LCD handheld GameWatch: a catalog of original arcade titles with an auto-sliding hero banner, a manager that edits every title, a Memory Card and a dashboard of simulated modules.",
   "icon": {
     "image": "brand/icon-2.jpg"
   },
@@ -13,7 +13,7 @@
   "tests": [
     {
       "id": "gw.arcade",
-      "name": "Arcade: cover header, genre tags and the eight titles",
+      "name": "Arcade: the hero banner, the category pills and the catalog rows",
       "path": "/#/",
       "expectSelector": "[data-gallery]",
       "visual": true,
@@ -26,14 +26,90 @@
       ]
     },
     {
-      "name": "Arcade lists the western-bar row",
+      "name": "Arcade renders the hero banner",
       "path": "/#/",
-      "expectSelector": "[data-game-list] [data-title=\"western-bar\"]"
+      "expectSelector": "[data-hero]"
     },
     {
-      "name": "Arcade offers a genre filter tag",
+      "name": "The hero banner names a title",
       "path": "/#/",
-      "expectSelector": "[data-filter-tag=\"Serve\"]"
+      "expectSelector": "[data-hero-title]"
+    },
+    {
+      "name": "The hero badge reads PLATFORM: GAMEWATCH",
+      "path": "/#/",
+      "expectSelector": "[data-hero-badge]",
+      "expectText": "PLATFORM: GAMEWATCH"
+    },
+    {
+      "name": "The hero banner can be edited",
+      "path": "/#/",
+      "expectSelector": "[data-hero-edit]"
+    },
+    {
+      "name": "Arcade offers a category pill",
+      "path": "/#/",
+      "expectSelector": "[data-catalog-pill=\"Simulation\"]"
+    },
+    {
+      "name": "The category pill narrows the catalogue",
+      "path": "/#/?pill=Simulation",
+      "expectSelector": "[data-gallery][data-filter=\"Simulation\"]"
+    },
+    {
+      "name": "A filtered catalogue shows a simulation row",
+      "path": "/#/?pill=Simulation",
+      "expectSelector": "[data-cat-row=\"airforce-fighter\"]"
+    },
+    {
+      "name": "Arcade shows the seeded western-bar catalog row",
+      "path": "/#/",
+      "expectSelector": "[data-cat-row=\"western-bar\"]"
+    },
+    {
+      "name": "The catalog row shows the handheld thumbnail",
+      "path": "/#/",
+      "expectSelector": "[data-cat-thumb=\"western-bar\"]"
+    },
+    {
+      "name": "The catalog row names the platform",
+      "path": "/#/",
+      "expectSelector": "[data-cat-row=\"western-bar\"] [data-cat-platform=\"western-bar\"]"
+    },
+    {
+      "name": "The seeded titles reach the Arcade",
+      "path": "/#/",
+      "expectSelector": "[data-cat-row=\"sl-bankman\"]"
+    },
+    {
+      "name": "Arcade has an add-game footer",
+      "path": "/#/",
+      "expectSelector": "[data-add-game-foot]"
+    },
+    {
+      "name": "Arcade header carries the module menu button",
+      "path": "/#/",
+      "expectSelector": "[data-header-menu]"
+    },
+    {
+      "name": "The manager renders every title",
+      "path": "/#/manage",
+      "expectSelector": "[data-manage-panel]"
+    },
+    {
+      "name": "The manager lists the seeded built-in titles",
+      "path": "/#/manage",
+      "expectSelector": "[data-manage-title-row=\"western-bar\"]"
+    },
+    {
+      "name": "The manager has an editor for each title",
+      "path": "/#/manage",
+      "expectSelector": "[data-manage-edit=\"western-bar\"]"
+    },
+    {
+      "name": "The manager opens the banner editor",
+      "path": "/#/manage/banner",
+      "expectSelector": "[data-manage-slide=\"0\"]"
     },
     {
       "name": "Hungry Dragon how to play screen renders",

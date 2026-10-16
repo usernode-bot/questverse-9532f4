@@ -50,6 +50,7 @@ module.exports = {
         fg: token('fg'), // text
         muted: token('muted'), // secondary text
         line: token('line'), // borders, dividers, skeletons
+        edge: token('edge'), // the brushed-metal edge: a highlight along a panel
         accent: token('accent'), // the one accent: the primary action
         'on-accent': token('on-accent'), // text on the accent
         danger: token('danger'),

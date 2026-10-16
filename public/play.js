@@ -158,12 +158,15 @@ export function howToBlocks(title) {
   return [
     el('section', { class: 'card flex flex-col gap-3', 'data-how-controls': '' },
       el('h3', { class: 'text-heading', text: 'Controls' }),
-      el('ul', { class: 'list' },
-        title.controls.map((c) => el('li', { class: 'list-row justify-between gap-3' },
+      el('ul', { class: 'list', 'data-how-control-list': title.id },
+        (Array.isArray(title.controls) ? title.controls : []).map((c) => el('li', {
+          class: 'list-row justify-between gap-3', 'data-how-control': c.keys,
+        },
           el('span', { class: 'text-body font-medium', text: c.keys }),
           el('span', { class: 'text-body text-muted', text: c.action }),
         )),
       ),
+      el('p', { class: 'text-small text-muted', text: 'These are the handheld\'s own buttons. Which key on your keyboard each one is bound to is set on the Settings screen, so the words here and the key you press cannot disagree.' }),
     ),
     el('section', { class: 'card flex flex-col gap-2', 'data-how-tiers': '' },
       el('h3', { class: 'text-heading', text: 'The scoring tiers' }),
@@ -257,7 +260,13 @@ export function renderPlay(title, opts) {
   let state = saved ? runner.load(saved) : runner.newRun();
 
   const canvas = el('canvas', { class: 'rig-canvas', 'data-lcd-canvas': title.id });
+  // The bezel picture sits BEHIND the canvas, as art around the panel. The
+  // panel itself stays the drawn simulation: an uploaded image cannot become
+  // the segment drawing, so it frames it rather than replacing it.
   const panel = el('div', { class: 'rig-screen', 'data-lcd-panel': title.id },
+    title.bezelUrl
+      ? el('img', { class: 'rig-bezel-art', src: title.bezelUrl, alt: title.title + ' bezel art', 'data-lcd-bezel': title.id, 'aria-hidden': 'true' })
+      : null,
     canvas,
     el('span', { class: 'rig-sim', text: 'Simulated panel' }),
   );
@@ -399,6 +408,17 @@ export function renderPlay(title, opts) {
     cardBlock.replaceChildren(...nodes);
   }
 
+  // A control row a title carries names the buttons it covers, so the keypad
+  // prints the title's OWN words over them. That is the manager's control
+  // editor reaching the on-screen keypad; which physical key is bound to the
+  // button stays the person's own mapping on the Settings screen.
+  const controlWords = {};
+  for (const row of Array.isArray(title.controls) ? title.controls : []) {
+    for (const key of Array.isArray(row.plays) ? row.plays : []) {
+      if (row.action && !controlWords[key]) controlWords[key] = row.action;
+    }
+  }
+
   function paintKeypad() {
     const groups = [
       { id: 'dpad', label: 'D-Pad', acts: ACTIONS.filter((a) => a.group === 'dpad') },
@@ -408,11 +428,14 @@ export function renderPlay(title, opts) {
     keypad.replaceChildren(...groups.map((group) => el('div', { class: 'flex flex-col gap-1', 'data-keypad-group': group.id },
       el('p', { class: 'section-label mb-0', text: group.label }),
       el('div', { class: 'rig-keypad-row' }, group.acts.map((action) => el('button', {
-        class: 'rig-button', type: 'button', 'data-keypad-key': action.key, title: action.blurb,
-        onclick: () => press(action.key, action.label),
+        class: 'rig-button', type: 'button', 'data-keypad-key': action.key, title: controlWords[action.key] || action.blurb,
+        onclick: () => press(action.key, controlWords[action.key] || action.label),
       },
         el('span', { class: 'font-mono text-small', text: keyLabel(bindings[action.key]) }),
         el('span', { class: 'text-small', text: action.label }),
+        controlWords[action.key]
+          ? el('span', { class: 'text-small text-muted', 'data-keypad-control': action.key, text: controlWords[action.key] })
+          : null,
       ))),
     )));
   }

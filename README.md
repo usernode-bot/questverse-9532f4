@@ -3,16 +3,23 @@
 > A simulated LCD handheld arcade hybrid: eight original titles, a Memory Card and a dashboard of simulated modules.
 
 GameWatch boots like the handheld it is pretending to be. The screen shows a
-six-module dashboard, and the Arcade is where most of it happens: a sliding
-cover-art header, genre filter tags, and the eight built-in titles as
-poster-plus-title rows, each with its own How to Play drawer, its own LCD play
-screen and its own Memory Card cards.
+six-module dashboard, and the Arcade is where most of it happens: an
+auto-sliding hero banner with amber arrows and a glass `PLATFORM: GAMEWATCH`
+badge, amber genre pills, and the titles as catalog rows with an LCD
+thumbnail, a boxed genre tag and a How to Play link. Each title has its own
+How to Play drawer, its own LCD play screen and its own Memory Card cards, and
+a manager screens edits every title's words and art.
 
 ## The dashboard modules
 
-- **Arcade** is the default screen. The cover strip slides sideways, the genre
-  tags filter the list, and each title's row opens its How to Play drawer or
-  starts it on the panel.
+- **Arcade** is the default screen. The hero banner slides itself or by its
+  arrows, the amber pills filter the list by broad genre, and each catalog row
+  opens its How to Play drawer or starts the title on the panel. The
+  `+ Add Game` footer leads to the manager.
+- **Manage titles** (`#/manage`) edits any title in the Arcade: its name, its
+  year, its broad genre, its genre box, its sub-genres, its descriptions, its
+  control list, and its thumbnail and bezel pictures. `#/manage/banner` holds
+  the person's own banner slide list.
 - **Terminal** is a simulated handheld terminal. `HELP`, `TITLES`, `RUN
   <title>`, `CARDS`, `SYSINFO`, `SKIN`, `COVERS`, `UFW` and `CLS` all work.
 - **FTP** is a read-only simulated view of what the handheld holds: the eight
@@ -30,7 +37,11 @@ screen and its own Memory Card cards.
 ## The eight built-in titles
 
 Each is original to this app, has its own segment art and its own scoring
-tiers, and is played with the handheld's own keys.
+tiers, and is played with the handheld's own keys. All eight are rows in the
+`rr_titles` table, seeded from `public/titles.originals.js` on every boot, so
+a fresh database still renders the whole collection. Their rules and their
+panel art stay in code, which is why the manager can change what a title says
+without changing how it plays.
 
 | Title | Genre box | Genres |
 | --- | --- | --- |
@@ -54,8 +65,12 @@ the viewer's own state lives in Postgres, keyed by the platform user id:
 
 - `public/lcd.js` is the segment kit: the art language, the seven-segment
   digits, the printed labels and the cell bars.
-- `public/games.js` holds all eight titles as pure, deterministic state
+- `public/games.js` holds the eight titles as pure, deterministic state
   machines and their segment drawing, with no DOM or storage.
+- `public/titles.originals.js` is the eight built-in titles as plain data, the
+  app's seed for the `rr_titles` table.
+- `public/manage.js` is the manager's forms: a title's words, controls and
+  pictures, and the banner's slide list.
 - `public/crt.js` is the picture pipeline: a 320x200 segment backbuffer scaled
   onto the visible canvas with the viewer's gamma, brightness, contrast,
   scanlines and curvature.
@@ -65,8 +80,10 @@ the viewer's own state lives in Postgres, keyed by the platform user id:
 - `public/app.js` is the shell, the six dashboard modules and the boot
   sequence.
 - `server.js` serves the API and the shell, verifies the platform's iframe
-  token, and owns the six tables: `rr_settings`, `rr_keymap`, `rr_saves`,
-  `rr_catalogue`, `rr_skins` and `rr_snapshots`.
+  token, and owns the tables: `rr_titles` and `rr_title_slides` (the Arcade's
+  collection and a person's banner slides), `rr_settings`, `rr_keymap`,
+  `rr_saves`, `rr_catalogue`, `rr_skins` and `rr_snapshots`. Uploaded art goes
+  to platform storage, so only its URL and file id are kept here.
 
 ## Running it
 

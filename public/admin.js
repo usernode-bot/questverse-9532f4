@@ -9,8 +9,9 @@
 // the verified token. Nobody can edit anyone else's title, and a signed-in
 // person can always add one of their own.
 //
-// The eight built-in titles are code, not rows, so they are not shown here:
-// this panel is for titles a person has added to their own Arcade.
+// The eight built-in titles are rows now, like every other title, so they are
+// edited in the manager (#/manage) rather than here: this panel is the short
+// path to a title a person has added to their own Arcade.
 
 import { el } from './dom.js';
 
@@ -18,9 +19,9 @@ import { el } from './dom.js';
 // beside the rule itself so the two cannot drift apart.
 export const ADMIN_NOTE = 'Any signed-in person can add a title to their own Arcade. '
   + 'Whoever added a title is the one who may edit or remove it: every entry is '
-  + 'kept against the account that added it, so nobody else\'s is touched. The panel '
-  + 'names that path on the screen rather than hiding itself behind a role the app '
-  + 'is never told.';
+  + 'kept against the account that added it, so nobody else\'s is touched. The manager '
+  + '(Manage titles, on the Arcade) is where a title\'s words, its control list and '
+  + 'its pictures are edited, including the eight built-in titles, whose edits are shared.';
 
 // Whether this person may edit this entry. An entry carries `mine` when the
 // server answered with one of this account's own rows; a guest may add
@@ -122,7 +123,7 @@ export function renderAdminPanel(opts) {
       el('h3', { class: 'text-heading', text: entries.length ? 'Titles you added (' + entries.length + ')' : 'Titles you added' }),
       entries.length
         ? el('ul', { class: 'list' }, entries.map(row))
-        : el('p', { class: 'state-empty text-body text-muted', text: 'You have not added a title to this Arcade yet. The eight built-in titles are built into GameWatch and need no entry here.' }),
+        : el('p', { class: 'state-empty text-body text-muted', text: 'You have not added a title to this Arcade yet. The eight built-in titles are already here, and the manager edits them.' }),
     ),
     form,
     el('p', { class: 'text-small text-muted', text: 'An added title is a name and a cover for your own Arcade. GameWatch does not run it: it catalogues it, exactly as the collection always said.' }),

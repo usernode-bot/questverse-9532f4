@@ -281,6 +281,154 @@ async function readSnapshots(id, now) {
   return rows.map((row) => shapeSnapshot(row, now));
 }
 
+/* ── The Arcade's titles ──────────────────────────────────────────────────
+ * A title's WORDS are rows in rr_titles (seeded from the eight originals).
+ * What a title DOES is code in public/games.js, so an edit changes what a
+ * title says and shows, never how it plays.
+ */
+
+// The eight originals' own words, read from the same file the browser reads so
+// there is exactly one copy of each title. Loaded once, on boot: the seed needs
+// it on every start and it cannot change while the app runs.
+let BUILT_IN_TITLES = [];
+
+async function loadOriginals() {
+  if (BUILT_IN_TITLES.length) return BUILT_IN_TITLES;
+  try {
+    const mod = await import('./public/titles.originals.js');
+    BUILT_IN_TITLES = Array.isArray(mod.BUILT_IN_TITLES) ? mod.BUILT_IN_TITLES : [];
+  } catch (err) {
+    console.warn('could not load the built-in titles: ' + err.message);
+    BUILT_IN_TITLES = [];
+  }
+  return BUILT_IN_TITLES;
+}
+
+// One title row, as the API answers it. `viewerId` is who is asking, so the
+// row can say whether it is theirs; a built-in belongs to the collection, and
+// any signed-in person may edit it (the edit is shared).
+function shapeTitle(row, viewerId) {
+  const builtIn = !!row.built_in;
+  const owner = row.owner_id == null ? null : String(row.owner_id);
+  const json = (v) => (Array.isArray(v) ? v : []);
+  return {
+    id: String(row.id),
+    title: row.title,
+    year: row.year == null ? 0 : Number(row.year),
+    category: row.category || 'Other',
+    genreBox: row.genre_box || '',
+    genres: json(row.genres),
+    tagline: row.tagline || '',
+    summary: row.summary || '',
+    controls: json(row.controls),
+    howTo: json(row.how_to),
+    coverArt: json(row.cover_art),
+    tiers: json(row.tiers),
+    thumbnailUrl: row.thumbnail_url || null,
+    thumbnailFileId: row.thumbnail_file_id || null,
+    bezelUrl: row.bezel_url || null,
+    bezelFileId: row.bezel_file_id || null,
+    builtIn,
+    ownerId: owner,
+    mine: !builtIn && !!viewerId && owner === String(viewerId),
+    sortOrder: Number(row.sort_order) || 999,
+  };
+}
+
+async function readTitles(viewerId) {
+  const { rows } = await pool.query(
+    'SELECT * FROM rr_titles ORDER BY built_in DESC, sort_order ASC, title ASC',
+  );
+  return rows.map((r) => shapeTitle(r, viewerId));
+}
+
+// The hero banner's slide list, for one person.
+function shapeSlide(row) {
+  return {
+    id: String(row.id),
+    titleId: row.title_id ? String(row.title_id) : null,
+    artUrl: row.art_url || null,
+    artFileId: row.art_file_id || null,
+    sortOrder: Number(row.sort_order) || 0,
+  };
+}
+
+async function readSlides(ownerId) {
+  if (!ownerId) return [];
+  const { rows } = await pool.query(
+    'SELECT id, title_id, art_url, art_file_id, sort_order FROM rr_title_slides WHERE owner_id = $1 ORDER BY sort_order ASC, id ASC',
+    [ownerId],
+  );
+  return rows.map(shapeSlide);
+}
+
+// ── Validation for a title write ─────────────────────────────────────────
+// Everything a manager can type is clamped to the shape the screens expect,
+// and the art is only ever a URL the platform's storage handed back. Image
+// bytes are never stored here.
+const TITLE_KEYS = ['up', 'down', 'left', 'right', 'game_a', 'game_b', 'sound', 'time', 'reset'];
+
+function text(value, max) {
+  return typeof value === 'string' ? value.slice(0, max) : '';
+}
+
+function httpUrl(value) {
+  return typeof value === 'string' && /^https?:\/\//.test(value) ? value.slice(0, 500) : null;
+}
+
+function cleanTitleWrite(body, id) {
+  const raw = body || {};
+  const genres = Array.isArray(raw.genres)
+    ? raw.genres.filter((g) => typeof g === 'string' && g.trim()).map((g) => g.trim().slice(0, 40)).slice(0, 8)
+    : [];
+  const controls = Array.isArray(raw.controls)
+    ? raw.controls.map((c) => ({
+      keys: text(c && c.keys, 60).trim(),
+      action: text(c && c.action, 160).trim(),
+      plays: Array.isArray(c && c.plays)
+        ? c.plays.filter((k) => TITLE_KEYS.includes(k)).slice(0, 6) : [],
+    })).filter((c) => c.keys || c.action).slice(0, 12)
+    : [];
+  const howTo = Array.isArray(raw.howTo)
+    ? raw.howTo.map((b) => ({
+      heading: text(b && b.heading, 80).trim(),
+      lines: Array.isArray(b && b.lines)
+        ? b.lines.filter((l) => typeof l === 'string' && l.trim()).map((l) => l.trim().slice(0, 400)).slice(0, 12)
+        : [],
+    })).filter((b) => b.heading || b.lines.length).slice(0, 8)
+    : [];
+  const tiers = Array.isArray(raw.tiers)
+    ? raw.tiers.map((t) => ({
+      name: text(t && t.name, 40).trim() || 'Tier',
+      min: Number.isFinite(Number(t && t.min)) ? Math.round(Number(t.min)) : 0,
+      max: t && t.max == null ? null : (Number.isFinite(Number(t.max)) ? Math.round(Number(t.max)) : null),
+    })).slice(0, 6)
+    : [];
+  const coverArt = Array.isArray(raw.coverArt)
+    ? raw.coverArt.filter((r) => typeof r === 'string').map((r) => r.slice(0, 80)).slice(0, 40)
+    : [];
+  const year = Number(raw.year);
+  return {
+    id: String(id),
+    title: text(raw.title, 120).trim(),
+    year: Number.isFinite(year) && year >= 1900 && year <= 2100 ? Math.round(year) : null,
+    category: text(raw.category, 40).trim() || 'Other',
+    genreBox: text(raw.genreBox, 60).trim(),
+    genres: genres.length ? genres : ['Other'],
+    tagline: text(raw.tagline, 200).trim(),
+    summary: text(raw.summary, 2000).trim(),
+    controls,
+    howTo,
+    coverArt,
+    tiers,
+    thumbnailUrl: raw.thumbnail === null ? null : httpUrl(raw.thumbnail && raw.thumbnail.url),
+    thumbnailFileId: raw.thumbnail === null ? null : text(raw.thumbnail && raw.thumbnail.fileId, 200) || null,
+    bezelUrl: raw.bezel === null ? null : httpUrl(raw.bezel && raw.bezel.url),
+    bezelFileId: raw.bezel === null ? null : text(raw.bezel && raw.bezel.fileId, 200) || null,
+    sortOrder: Number.isFinite(Number(raw.sortOrder)) ? Math.round(Number(raw.sortOrder)) : 100,
+  };
+}
+
 async function readCatalogue(id) {
   if (!id) return [];
   const { rows } = await pool.query(
@@ -330,8 +478,9 @@ async function readSaves(id) {
 app.get('/api/me', async (req, res) => {
   const id = userId(req);
   try {
-    const [settings, bindings, saves, skins, snapshots] = await Promise.all([
+    const [settings, bindings, saves, skins, snapshots, titles, slides] = await Promise.all([
       readSettings(id), readBindings(id), readSaves(id), readSkins(id), readSnapshots(id, req.now),
+      readTitles(id), readSlides(id),
     ]);
     res.json({
       id: req.user ? req.user.id : null,
@@ -345,6 +494,8 @@ app.get('/api/me', async (req, res) => {
       skin: skins.skin,
       transcript: skins.transcript,
       snapshots,
+      titles,
+      slides,
     });
   } catch (err) {
     console.error('watch load failed: ' + err.message);
@@ -400,13 +551,154 @@ app.put('/api/keymap', async (req, res) => {
   }
 });
 
-// The Arcade's own added titles. An entry is a title and, when the platform's
-// storage took one, the cover image's URL. The bytes never come here and a
-// stored entry is never executed: GameWatch catalogues a cover, it does not
-// run a program.
+/* ── The Arcade's collections ─────────────────────────────────────────────
+ * `GET /api/titles` is the whole Arcade: the eight built-ins (rows, seeded on
+ * boot) and every added title. `PUT /api/titles/:id` is the manager's write.
+ */
+
+app.get('/api/titles', async (req, res) => {
+  try {
+    const titles = await readTitles(userId(req));
+    res.json({ titles });
+  } catch (err) {
+    console.error('titles read failed: ' + err.message);
+    res.status(500).json({ error: 'Could not read the Arcade titles' });
+  }
+});
+
+// The manager's write. A new id creates an added title owned by the caller; an
+// existing id edits it. A built-in may be edited by any signed-in person (the
+// edit is shared), but never re-owned, and its drawing stays in code.
+app.put('/api/titles/:id', async (req, res) => {
+  const id = String(req.params.id).slice(0, 80);
+  if (!id) return res.status(400).json({ error: 'That title has no id.' });
+  const next = cleanTitleWrite(req.body || {}, id);
+  if (!next.title) return res.status(400).json({ error: 'Give the title a name.' });
+  const viewer = userId(req);
+  try {
+    const existing = await pool.query('SELECT built_in, owner_id FROM rr_titles WHERE id = $1', [id]);
+    if (existing.rowCount) {
+      const row = existing.rows[0];
+      if (!row.built_in && String(row.owner_id || '') !== String(viewer)) {
+        return res.status(403).json({ error: 'That title belongs to another Arcade.' });
+      }
+      await pool.query(
+        `UPDATE rr_titles SET title = $2, year = $3, category = $4, genre_box = $5, genres = $6::jsonb,
+           tagline = $7, summary = $8, controls = $9::jsonb, how_to = $10::jsonb, cover_art = $11::jsonb,
+           tiers = $12::jsonb, thumbnail_url = $13, thumbnail_file_id = $14, bezel_url = $15,
+           bezel_file_id = $16, updated_at = NOW()
+         WHERE id = $1`,
+        [id, next.title, next.year, next.category, next.genreBox, JSON.stringify(next.genres),
+          next.tagline, next.summary, JSON.stringify(next.controls), JSON.stringify(next.howTo),
+          JSON.stringify(next.coverArt), JSON.stringify(next.tiers), next.thumbnailUrl,
+          next.thumbnailFileId, next.bezelUrl, next.bezelFileId],
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO rr_titles
+           (id, built_in, owner_id, title, year, category, genre_box, genres, tagline, summary,
+            controls, how_to, cover_art, tiers, thumbnail_url, thumbnail_file_id, bezel_url,
+            bezel_file_id, sort_order, updated_at)
+         VALUES ($1, FALSE, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb,
+            $13::jsonb, $14, $15, $16, $17, $18, NOW())`,
+        [id, viewer, next.title, next.year, next.category, next.genreBox, JSON.stringify(next.genres),
+          next.tagline, next.summary, JSON.stringify(next.controls), JSON.stringify(next.howTo),
+          JSON.stringify(next.coverArt), JSON.stringify(next.tiers), next.thumbnailUrl,
+          next.thumbnailFileId, next.bezelUrl, next.bezelFileId, next.sortOrder],
+      );
+    }
+    const { rows } = await pool.query('SELECT * FROM rr_titles WHERE id = $1', [id]);
+    res.json({ title: shapeTitle(rows[0], viewer) });
+  } catch (err) {
+    console.error('title write failed: ' + err.message);
+    res.status(500).json({ error: 'Could not save that title' });
+  }
+});
+
+// A built-in is the collection's: it is refused rather than deleted, because
+// its Memory Card rows and its play screen resolve a title by id. An added
+// title is the one who added it, and its cards are cleared with it.
+app.delete('/api/titles/:id', async (req, res) => {
+  const id = String(req.params.id).slice(0, 80);
+  try {
+    const { rows } = await pool.query('SELECT built_in, owner_id FROM rr_titles WHERE id = $1', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'That title is not in this Arcade.' });
+    if (rows[0].built_in) return res.status(400).json({ error: 'A built-in title cannot be removed.' });
+    if (String(rows[0].owner_id || '') !== String(userId(req))) {
+      return res.status(403).json({ error: 'That title belongs to another Arcade.' });
+    }
+    await pool.query('DELETE FROM rr_saves WHERE game_id = $1 AND user_id = $2', [id, userId(req)]);
+    await pool.query('DELETE FROM rr_title_slides WHERE title_id = $1 AND owner_id = $2', [id, userId(req)]);
+    await pool.query('DELETE FROM rr_titles WHERE id = $1', [id]);
+    res.status(204).end();
+  } catch (err) {
+    console.error('title delete failed: ' + err.message);
+    res.status(500).json({ error: 'Could not remove that title' });
+  }
+});
+
+/* ── The hero banner ──────────────────────────────────────────────────────
+ * A person's own slide list: which titles the banner shows, in what order,
+ * and which picture each one uses. It belongs to whoever set it, unlike a
+ * title's words, which are shared.
+ */
+app.get('/api/banner', async (req, res) => {
+  try {
+    res.json({ slides: await readSlides(userId(req)) });
+  } catch (err) {
+    console.error('banner read failed: ' + err.message);
+    res.status(500).json({ error: 'Could not read the banner' });
+  }
+});
+
+app.put('/api/banner', async (req, res) => {
+  const raw = req.body && req.body.slides;
+  if (!Array.isArray(raw)) return res.status(400).json({ error: 'The banner needs a list of slides.' });
+  const owner = userId(req);
+  const clean = raw.slice(0, 12).map((s, i) => ({
+    titleId: typeof (s && s.titleId) === 'string' ? s.titleId.slice(0, 80) : null,
+    artUrl: s && s.art && s.art.url ? httpUrl(s.art.url) : null,
+    artFileId: s && s.art && typeof s.art.fileId === 'string' ? s.art.fileId.slice(0, 200) : null,
+    sortOrder: i + 1,
+  }));
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM rr_title_slides WHERE owner_id = $1', [owner]);
+      for (const s of clean) {
+        await client.query(
+          `INSERT INTO rr_title_slides (id, owner_id, title_id, art_url, art_file_id, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [require('crypto').randomUUID(), owner, s.titleId, s.artUrl, s.artFileId, s.sortOrder],
+        );
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+    res.json({ slides: await readSlides(owner) });
+  } catch (err) {
+    console.error('banner write failed: ' + err.message);
+    res.status(500).json({ error: 'Could not save the banner' });
+  }
+});
+
+/* ── The Arcade's added titles, as the older admin panel reads them ───────
+ * An added title is a rr_titles row now, so the panel and the manager see the
+ * same collection. The entry shape is kept for the panel that already uses it.
+ */
 app.get('/api/catalogue', async (req, res) => {
   try {
-    res.json({ entries: await readCatalogue(userId(req)) });
+    const id = userId(req);
+    const titles = await readTitles(id);
+    const entries = titles.filter((t) => !t.builtIn && t.mine).map((t) => ({
+      id: t.id, title: t.title, filename: null, storageUrl: t.thumbnailUrl, addedAt: null,
+    }));
+    res.json({ entries });
   } catch (err) {
     console.error('catalogue read failed: ' + err.message);
     res.status(500).json({ error: 'Could not read the Arcade collection' });
@@ -419,21 +711,17 @@ app.post('/api/catalogue', async (req, res) => {
   const storageUrl = typeof body.storageUrl === 'string' && /^https?:\/\//.test(body.storageUrl)
     ? body.storageUrl.slice(0, 500) : null;
   if (!title) return res.status(400).json({ error: 'Give the title a name.' });
+  const id = require('crypto').randomUUID();
+  const viewer = userId(req);
   try {
-    const id = require('crypto').randomUUID();
-    const { rows } = await pool.query(
-      `INSERT INTO rr_catalogue (id, user_id, title, filename, storage_url, added_at)
-       VALUES ($1, $2, $3, NULL, $4, NOW())
-       RETURNING id, title, filename, storage_url, added_at`,
-      [id, userId(req), title, storageUrl],
+    await pool.query(
+      `INSERT INTO rr_titles (id, built_in, owner_id, title, year, category, genre_box, genres, tagline,
+         summary, controls, how_to, cover_art, tiers, thumbnail_url, sort_order, updated_at)
+       VALUES ($1, FALSE, $2, $3, NULL, 'Added by you', 'Added by you', '[]'::jsonb, '', '', '[]'::jsonb,
+         '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, $4, $5, NOW())`,
+      [id, viewer, title, storageUrl, 100],
     );
-    const r = rows[0];
-    res.status(201).json({
-      entry: {
-        id: String(r.id), title: r.title, filename: r.filename || null,
-        storageUrl: r.storage_url || null, addedAt: r.added_at,
-      },
-    });
+    res.status(201).json({ entry: { id, title, filename: null, storageUrl, addedAt: null } });
   } catch (err) {
     console.error('catalogue write failed: ' + err.message);
     res.status(500).json({ error: 'Could not add that title' });
@@ -441,12 +729,17 @@ app.post('/api/catalogue', async (req, res) => {
 });
 
 app.delete('/api/catalogue/:id', async (req, res) => {
+  const id = String(req.params.id).slice(0, 80);
   try {
-    const { rowCount } = await pool.query(
-      'DELETE FROM rr_catalogue WHERE user_id = $1 AND id = $2',
-      [userId(req), String(req.params.id).slice(0, 80)],
-    );
-    if (!rowCount) return res.status(404).json({ error: 'That title is not in this collection.' });
+    const { rows } = await pool.query('SELECT built_in, owner_id FROM rr_titles WHERE id = $1', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'That title is not in this collection.' });
+    if (rows[0].built_in) return res.status(400).json({ error: 'A built-in title cannot be removed.' });
+    if (String(rows[0].owner_id || '') !== String(userId(req))) {
+      return res.status(403).json({ error: 'That title belongs to another Arcade.' });
+    }
+    await pool.query('DELETE FROM rr_saves WHERE game_id = $1 AND user_id = $2', [id, userId(req)]);
+    await pool.query('DELETE FROM rr_title_slides WHERE title_id = $1 AND owner_id = $2', [id, userId(req)]);
+    await pool.query('DELETE FROM rr_titles WHERE id = $1', [id]);
     res.status(204).end();
   } catch (err) {
     console.error('catalogue delete failed: ' + err.message);
@@ -698,6 +991,49 @@ async function ensureSchema() {
   await pool.query('ALTER TABLE rr_catalogue ALTER COLUMN filename DROP NOT NULL');
   await pool.query('CREATE INDEX IF NOT EXISTS rr_catalogue_user_idx ON rr_catalogue (user_id, added_at DESC)');
 
+  // The Arcade's titles are ROWS now. What a title SAYS (its name, year, its
+  // broad genre, its sub-genres, its words, its control list and its three
+  // pictures) lives here, so the manager can edit it and the Arcade is drawn
+  // from what the app actually holds. What a title DOES stays in code
+  // (public/games.js): an added title has no rules and cannot be run, and an
+  // edit never changes how a built-in plays.
+  await pool.query(`CREATE TABLE IF NOT EXISTS rr_titles (
+    id TEXT PRIMARY KEY,
+    built_in BOOLEAN NOT NULL DEFAULT FALSE,
+    owner_id TEXT,
+    title TEXT NOT NULL,
+    year INTEGER,
+    category TEXT,
+    genre_box TEXT,
+    genres JSONB NOT NULL DEFAULT '[]'::jsonb,
+    tagline TEXT,
+    summary TEXT,
+    controls JSONB NOT NULL DEFAULT '[]'::jsonb,
+    how_to JSONB NOT NULL DEFAULT '[]'::jsonb,
+    cover_art JSONB NOT NULL DEFAULT '[]'::jsonb,
+    tiers JSONB NOT NULL DEFAULT '[]'::jsonb,
+    thumbnail_url TEXT,
+    thumbnail_file_id TEXT,
+    bezel_url TEXT,
+    bezel_file_id TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 999,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS rr_titles_order_idx ON rr_titles (built_in DESC, sort_order ASC, title ASC)');
+
+  // The hero banner's slide list. A slide is a title plus, when the platform's
+  // storage took one, the picture to show for it. The list is per person: it
+  // is a view preference, unlike a title's own words.
+  await pool.query(`CREATE TABLE IF NOT EXISTS rr_title_slides (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    title_id TEXT,
+    art_url TEXT,
+    art_file_id TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS rr_title_slides_owner_idx ON rr_title_slides (owner_id, sort_order ASC)');
+
   await pool.query(`CREATE TABLE IF NOT EXISTS rr_saves (
     user_id TEXT NOT NULL,
     game_id TEXT NOT NULL,
@@ -750,6 +1086,53 @@ async function sweepSnapshots() {
     if (rowCount) console.log(`retention: removed ${rowCount} snapshot(s) past ${RETENTION_DAYS} days`);
   } catch (err) {
     console.warn('retention sweep failed: ' + err.message);
+  }
+}
+
+/* ── The eight built-in titles, seeded on every boot ──────────────────────
+ * These are the app's OWN data, not demo data: without them the Arcade is
+ * empty and no title can run. So this runs in EVERY environment, is
+ * idempotent, and never overwrites a row a person has edited (ON CONFLICT DO
+ * NOTHING). A production database gains them on its next boot, which is also
+ * what moves the existing rr_catalogue rows across.
+ *
+ * It is what makes a fresh staging database render the full collection: the
+ * code no longer carries the eight titles' words, only their rules.
+ */
+async function seedBuiltInTitles() {
+  const originals = await loadOriginals();
+  for (const t of originals) {
+    try {
+      await pool.query(
+        `INSERT INTO rr_titles
+           (id, built_in, owner_id, title, year, category, genre_box, genres, tagline, summary,
+            controls, how_to, cover_art, tiers, thumbnail_url, bezel_url, sort_order, updated_at)
+         VALUES ($1, TRUE, NULL, $2, $3, $4, $5, $6::jsonb, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb,
+            $12::jsonb, NULL, NULL, $13, NOW())
+         ON CONFLICT (id) DO NOTHING`,
+        [t.id, t.title, t.year, t.category, t.genreBox, JSON.stringify(t.genres), t.tagline, t.summary,
+          JSON.stringify(t.controls || []), JSON.stringify(t.howTo || []), JSON.stringify(t.coverArt || []),
+          JSON.stringify(t.tiers || []), t.sortOrder || 100],
+      );
+    } catch (err) {
+      console.warn('built-in seed failed for ' + t.id + ': ' + err.message);
+    }
+  }
+  // A title someone added before this build lived in rr_catalogue. It is
+  // copied across once, with the drawn cover as its art, so nobody loses one.
+  try {
+    await pool.query(
+      `INSERT INTO rr_titles
+         (id, built_in, owner_id, title, year, category, genre_box, genres, tagline, summary,
+          controls, how_to, cover_art, tiers, thumbnail_url, sort_order, updated_at)
+       SELECT c.id, FALSE, c.user_id, c.title, NULL, 'Added by you', 'Added by you', '[]'::jsonb, '',
+         '', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, c.storage_url, 100, NOW()
+       FROM rr_catalogue c
+       WHERE NOT EXISTS (SELECT 1 FROM rr_titles t WHERE t.id = c.id)
+       ON CONFLICT (id) DO NOTHING`,
+    );
+  } catch (err) {
+    console.warn('catalogue migration failed: ' + err.message);
   }
 }
 
@@ -817,6 +1200,37 @@ async function seedStaging() {
         message: 'Staging demo save: the hook is payed out to notch 6.',
       })],
     );
+    // The banner's slide list is a real feature, so the preview shows one: three
+    // slides belonging to the FAKE account, never to whoever opens the preview.
+    // One of them carries an uploaded picture.
+    const slides = [
+      { titleId: 'western-bar', artUrl: null },
+      { titleId: 'battle-field', artUrl: DEMO_COVER },
+      { titleId: 'submarine-battle', artUrl: null },
+    ];
+    for (let i = 0; i < slides.length; i += 1) {
+      await pool.query(
+        `INSERT INTO rr_title_slides (id, owner_id, title_id, art_url, art_file_id, sort_order)
+         VALUES ($1, $2, $3, $4, NULL, $5) ON CONFLICT (id) DO NOTHING`,
+        ['staging-demo-slide-' + (i + 1), DEMO_USER, slides[i].titleId, slides[i].artUrl, i + 1],
+      );
+    }
+    // One ADDED title, so the manager shows a row beside the eight built-ins
+    // and the edit a reviewer makes has something that is not a built-in to
+    // touch. It belongs to the fake account.
+    await pool.query(
+      `INSERT INTO rr_titles
+         (id, built_in, owner_id, title, year, category, genre_box, genres, tagline, summary,
+          controls, how_to, cover_art, tiers, thumbnail_url, bezel_url, sort_order, updated_at)
+       VALUES ($1, FALSE, $2, 'Staging demo title', 1985, 'Added by you', 'Staging demo',
+         $3::jsonb, 'A staging demo title, added so the manager has one that is not a built-in.',
+         'Staging demo entry. Any signed-in person may edit a preloaded built-in title, or add one of their own.',
+         $4::jsonb, '[]'::jsonb, $5::jsonb, '[]'::jsonb, $6, NULL, 100, NOW())
+       ON CONFLICT (id) DO NOTHING`,
+      ['staging-demo-title', DEMO_USER, JSON.stringify(['Staging demo']),
+        JSON.stringify([{ keys: 'Game A', action: 'A staging demo control row', plays: ['game_a'] }]),
+        JSON.stringify([]), DEMO_COVER],
+    );
     // Three snapshots, one of them past the two-month retention window, so
     // the Features screen has something true to say about it.
     const snapshots = [
@@ -845,6 +1259,7 @@ async function start() {
     console.warn('schema setup failed: ' + err.message);
   }
   await sweepSnapshots();
+  await seedBuiltInTitles();
   await seedStaging();
   const server = app.listen(port, () => console.log(`Listening on :${port}`));
   // Let Envoy retire idle upstream connections at 60s, with a 15s margin.

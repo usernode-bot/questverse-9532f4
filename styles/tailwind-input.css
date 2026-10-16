@@ -32,20 +32,21 @@
 @layer base {
   :root,
   .dark {
-    --ground: 6 8 10;         /* the CRT glass */
-    --surface: 15 20 23;      /* windows, lists, fields */
-    --raised: 26 33 37;       /* title bars, hovers, badges */
-    --fg: 226 236 232;        /* text */
-    --muted: 146 162 158;     /* secondary text */
-    --line: 52 66 66;         /* borders, dividers, skeletons */
-    --accent: 74 222 128;     /* phosphor green: the one primary action */
-    --on-accent: 4 24 12;     /* text on the accent */
+    --ground: 18 18 18;       /* brushed near-black metal: the page behind the glass */
+    --surface: 30 30 30;      /* windows, lists, fields, catalog rows */
+    --raised: 42 39 36;       /* title bars, hovers, badges: a warmer raised metal */
+    --fg: 246 244 240;        /* text */
+    --muted: 169 161 151;     /* secondary text */
+    --line: 74 60 38;         /* borders, dividers, skeletons: a bronze hairline */
+    --edge: 201 138 60;       /* the metal edge: a highlight along a brushed panel */
+    --accent: 245 180 73;     /* amber: the one primary action, the machine's own lamp */
+    --on-accent: 26 18 6;     /* text on the accent */
     --danger: 248 113 113;    /* alarm red: a destructive action, a game ending */
     --on-danger: 36 6 6;      /* text on danger */
-    --focus: 34 211 238;      /* signal cyan: the keyboard focus ring */
-    --signal: 34 211 238;     /* signal cyan: what the rig prints */
-    --amber: 251 191 36;      /* amber lamp: conflict, caution, a personal best */
-    --on-amber: 34 22 0;      /* text on amber */
+    --focus: 245 180 73;      /* amber: the keyboard focus ring */
+    --signal: 232 200 150;    /* pale bronze: what the rig prints, the readouts */
+    --amber: 201 138 60;      /* bronze: the caution lamp, the genre box, the badge */
+    --on-amber: 24 14 4;      /* text on the caution lamp */
   }
   /* el.hidden = true hides an element even when a class gives it a display
      (flex, the components below). */
@@ -118,10 +119,10 @@
      app lives inside the panel. The scanline layer and the corner falloff
      are drawn here so no screen has to repeat them. */
   .rig {
-    @apply flex min-h-screen flex-col gap-3 bg-ground px-3 py-3 sm:px-6 sm:py-6;
+    @apply relative isolate flex min-h-screen flex-col gap-3 bg-ground px-3 py-3 sm:px-6 sm:py-6;
   }
   .rig-bezel {
-    @apply mx-auto flex w-full max-w-5xl flex-1 flex-col gap-3 rounded-3xl border border-line bg-surface p-3 sm:p-4;
+    @apply mx-auto flex w-full max-w-5xl flex-1 flex-col gap-3 rounded-3xl border border-edge/40 bg-surface p-3 shadow-[inset_0_1px_0_rgb(var(--edge)/0.25)] sm:p-4;
   }
   .rig-glass {
     @apply relative flex flex-1 flex-col gap-4 overflow-hidden rounded-2xl border border-line bg-ground p-4 sm:p-6;
@@ -238,7 +239,14 @@
     @apply relative w-full overflow-hidden rounded-lg border border-line bg-ground;
   }
   .rig-canvas {
-    @apply block h-auto w-full;
+    @apply relative block h-auto w-full;
+  }
+  /* An uploaded bezel picture sits behind the panel as art around it. The
+     panel itself stays the drawn simulation, so this frames it rather than
+     replacing it. */
+  .rig-bezel-art {
+    @apply pointer-events-none absolute inset-0 h-full w-full object-cover opacity-30;
+    image-rendering: pixelated;
   }
 
   /* A small transient notice, used for save confirmations and conflicts. */
@@ -256,57 +264,154 @@
   }
 
   /* ── The Arcade ────────────────────────────────────────────────────────
-   * The sliding cover header, the genre tags and the poster-plus-title rows. */
+   * The hero banner, the category pills and the catalog rows. Dark brushed
+   * metal, one amber lamp, a bronze hairline: nothing here invents a colour. */
 
-  /* The cover strip: it slides sideways, and its own control keeps it from
-     needing a drag. Snap points make a slide land on a cover. */
-  .gw-cover-strip {
-    @apply flex snap-x gap-3 overflow-x-auto rounded-xl border border-line bg-ground p-3;
-    scrollbar-width: thin;
-  }
-  .gw-cover-card {
-    @apply flex min-w-[10rem] snap-start flex-col items-start gap-1 rounded-lg border border-line bg-surface
-      p-2 text-left text-fg hover:bg-raised focus-visible:outline-none focus-visible:ring-2
-      focus-visible:ring-focus;
-  }
-  /* A cover is segment art, so it is scaled by whole steps and never
-     smoothed: a segment has to stay a block. */
-  .gw-cover-art {
-    @apply block h-auto w-full rounded border border-line bg-ground;
-    image-rendering: pixelated;
-  }
-  .gw-cover-title {
-    @apply text-body font-medium;
-  }
-  .gw-poster {
-    @apply flex w-28 flex-col items-start gap-1;
-  }
-  .gw-poster-art {
-    @apply block h-auto w-full rounded border border-line bg-ground;
-    image-rendering: pixelated;
+  /* The brushed-metal grain. A pure-CSS brushed texture over the ground, so
+     the shell reads as a machined panel rather than a flat fill. It never
+     takes a pointer event and it is one layer, not a background image. */
+  .gw-grain {
+    @apply pointer-events-none absolute inset-0;
+    background-image:
+      repeating-linear-gradient(90deg, rgb(255 255 255 / 0.012) 0px, rgb(255 255 255 / 0.012) 1px, transparent 1px, transparent 3px),
+      repeating-linear-gradient(90deg, rgb(0 0 0 / 0.06) 0px, rgb(0 0 0 / 0.06) 2px, transparent 2px, transparent 5px);
   }
 
-  /* A genre filter tag. The one that is filtering says so. */
-  .gw-tag {
+  /* The header row: the wordmark, its own amber label, the menu button and the
+     manager link. */
+  .gw-header {
+    @apply flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-raised px-3 py-2;
+  }
+  .gw-wordmark {
+    @apply font-mono text-heading font-bold tracking-[0.18em] text-accent;
+  }
+  .gw-menu-button {
+    @apply inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-line bg-surface
+      text-body text-fg hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  }
+
+  /* The hero banner: one slide at a time, sliding on its own, with an arrow at
+     each end. The picture fills it and a dark wash keeps the words readable. */
+  .gw-hero-wrap {
+    @apply flex flex-col gap-2;
+  }
+  .gw-hero {
+    @apply relative flex min-h-56 flex-col justify-end overflow-hidden rounded-2xl border border-line bg-surface;
+  }
+  .gw-hero-art {
+    @apply absolute inset-0;
+  }
+  .gw-hero-img,
+  .gw-hero-art-canvas {
+    @apply block h-full w-full object-cover;
+    image-rendering: pixelated;
+  }
+  .gw-hero-drawn {
+    @apply absolute inset-0 flex items-center justify-center bg-ground p-4;
+  }
+  /* The wash under the words, so the title and the line stay legible over any
+     picture while the art still shows through. */
+  .gw-hero::after {
+    content: '';
+    @apply pointer-events-none absolute inset-0;
+    background: linear-gradient(to top, rgb(var(--ground) / 0.94) 0%, rgb(var(--ground) / 0.55) 42%, transparent 100%);
+  }
+  .gw-hero-arrow {
+    @apply absolute top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border
+      border-line bg-ground/80 text-title leading-none text-fg hover:bg-raised hover:text-accent
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  }
+  .gw-hero-arrow-prev { @apply left-2; }
+  .gw-hero-arrow-next { @apply right-2; }
+  .gw-hero-body {
+    @apply relative z-10 flex flex-col items-start gap-2 p-4 sm:p-5;
+  }
+  .gw-hero-title {
+    @apply text-title text-fg;
+  }
+  .gw-hero-line {
+    @apply max-w-prose text-body text-muted;
+  }
+  /* The glass badge: a translucent plate with an amber rim, the one piece of
+     glassmorphism in the app. */
+  .gw-hero-badge {
+    @apply inline-flex items-center rounded-full border border-amber/60 bg-surface/50 px-3 py-1 font-mono
+      text-small font-medium tracking-[0.12em] text-amber backdrop-blur-sm;
+  }
+  .gw-hero-actions {
+    @apply relative z-10 flex flex-wrap gap-2 p-4 pt-0 sm:p-5 sm:pt-0;
+  }
+  .gw-hero-dots {
+    @apply flex flex-wrap items-center gap-2;
+  }
+  .gw-hero-dot {
+    @apply h-2.5 w-2.5 rounded-full border border-line bg-surface hover:bg-raised
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  }
+  .gw-hero-dot-on {
+    @apply border-amber bg-amber;
+  }
+
+  /* The category pills and the add control: the Arcade's filter. */
+  .gw-pill {
     @apply inline-flex min-h-11 items-center rounded-full border border-line bg-surface px-4 text-small
       text-fg hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
   }
-  .gw-tag-on {
-    @apply border-accent bg-accent font-medium text-on-accent;
+  .gw-pill-on {
+    @apply border-amber bg-amber font-medium text-on-amber;
+  }
+  .gw-pill-add {
+    @apply border-amber/60 font-medium text-amber;
+  }
+  /* A control row's button chip in the manager: it says the row covers it. */
+  .gw-pill .sr-only:checked + span {
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 
-  /* The title list: one row per title, poster then name. The row is the
-     unit, so the poster and everything about the title stay together. */
-  .gw-list {
+  /* The catalog: one row per title. The LCD thumbnail is what a person taps to
+     play, so it is drawn large and crisp. */
+  .gw-cat-list {
     @apply flex flex-col gap-3;
   }
-  .gw-row {
+  .gw-cat-row {
     @apply flex flex-col gap-3 rounded-xl border border-line bg-surface p-3 sm:flex-row sm:p-4;
   }
-  /* The genre the title is filed under, as a printed box. */
-  .gw-genre-box {
+  .gw-thumb {
+    @apply relative flex w-28 shrink-0 flex-col items-start gap-1;
+  }
+  .gw-thumb-art {
+    @apply block h-auto w-full rounded border border-line bg-ground object-contain;
+    image-rendering: pixelated;
+  }
+  /* The genre the title is filed under, as a boxed tag beside its name. */
+  .gw-cat-tag {
     @apply inline-flex items-center rounded-md border border-amber px-2 py-0.5 text-small font-medium
       text-amber;
+  }
+  /* A title's name, printed the way the machine prints it. */
+  .gw-cat-title {
+    @apply font-mono text-heading font-bold tracking-wide text-fg;
+  }
+  .gw-cat-detail {
+    @apply text-small text-muted;
+  }
+  /* PLATFORM: GAMEWATCH, the machine's own line on every row. */
+  .gw-platform {
+    @apply font-mono text-small tracking-[0.12em] text-signal;
+  }
+  .gw-howto {
+    @apply no-underline;
+  }
+
+  /* The footer under the catalog: the add control and the manager link. */
+  .gw-add-foot {
+    @apply flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-raised px-4 py-3;
+  }
+
+  /* The banner's own editor rows in the manager. */
+  .gw-slide-row {
+    @apply flex flex-col gap-2 rounded-lg border border-line bg-surface p-3;
   }
 
   /* The FTP tree: a read-only view of what the handheld holds. */
@@ -330,27 +435,29 @@
  */
 @layer base {
   .rig[data-skin="silver"] {
-    --ground: 44 47 46;
-    --surface: 68 72 70;
-    --raised: 92 97 94;
-    --fg: 238 242 236;
-    --muted: 176 184 178;
-    --line: 120 128 122;
-    --accent: 88 210 140;
-    --on-accent: 12 30 18;
-    --signal: 128 226 246;
-    --amber: 246 198 74;
+    --ground: 44 44 46;
+    --surface: 68 68 70;
+    --raised: 92 88 84;
+    --fg: 244 242 238;
+    --muted: 186 180 172;
+    --line: 128 116 96;
+    --edge: 220 190 150;
+    --accent: 248 196 108;
+    --on-accent: 34 24 8;
+    --signal: 240 224 196;
+    --amber: 220 168 96;
   }
   .rig[data-skin="night"] {
-    --ground: 6 12 11;
-    --surface: 12 22 20;
-    --raised: 20 34 31;
-    --fg: 206 226 216;
-    --muted: 122 148 140;
-    --line: 38 60 56;
-    --accent: 66 200 116;
-    --on-accent: 4 20 10;
-    --signal: 96 200 224;
-    --amber: 230 176 48;
+    --ground: 10 10 12;
+    --surface: 20 20 24;
+    --raised: 30 28 30;
+    --fg: 234 230 222;
+    --muted: 148 142 132;
+    --line: 60 50 34;
+    --edge: 172 118 52;
+    --accent: 236 172 72;
+    --on-accent: 22 14 4;
+    --signal: 214 186 140;
+    --amber: 176 120 52;
   }
 }

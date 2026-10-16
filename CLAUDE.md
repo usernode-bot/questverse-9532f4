@@ -81,10 +81,16 @@ original titles**. The dashboard modules are the **Arcade** (the default
 screen), the **Terminal**, the **FTP** view, the **OS**, the **Features**
 screen and the **Settings**.
 
-The arcade is the point: a sliding **cover-art header**, **genre filter tags**,
-and the eight titles in a **poster-plus-title row layout**. Each title carries
-its own **How to Play** drawer, its own **LCD play screen**, its own readout,
-its own entry in the **key mapping** and its own **Memory Card** slots.
+The arcade is the point: an auto-sliding **hero banner** with amber arrows,
+a glassmorphic `PLATFORM: GAMEWATCH` badge and optional uploaded art; **amber
+genre pills**; and the titles as **catalog rows** carrying an LCD thumbnail, a
+boxed genre tag, the uppercase title, its sub-genre line, a `PLATFORM:
+GAMEWATCH` line and a **How to Play** link, then a `+ ADD NEW GAME` footer.
+Each title carries its own **How to Play** drawer, its own **LCD play screen**,
+its own readout, its own entry in the **key mapping** and its own **Memory
+Card** slots. A **manager** (`#/manage`, with `#/manage/banner` for the
+banner's own slide list) edits every title's words, its descriptions and its
+control list, and replaces its thumbnail, banner and bezel art.
 
 The point of the app is the machine, not only the titles: the settings really
 change the picture a title is drawn with, the key mapping really changes which
@@ -95,11 +101,15 @@ keys play it, and the Memory Card really stores where a run had got to.
 This app's look. The first real version fills in the blanks; every later
 change follows it, and updates it when a request changes the look on purpose.
 
-- **Palette:** ground is the near-black shell; surface and raised are lifted
-  greys for the bezel, windows and keys; the **panel's own green-grey LCD** is
-  the screen itself; **phosphor green** is the one action; **signal cyan** is
-  what the handheld PRINTS (the boot log, a terminal reply, every readout);
-  **amber** is a caution lamp (a key conflict, the "simulated" pills, the genre
+- **Palette:** the shell is dark **brushed metal** (near-black ground, a
+  lifted-grey surface for windows and catalog rows, a warmer raised metal for
+  title bars and hovers, and a **bronze hairline** `--line` with an `--edge`
+  highlight along a brushed panel); the **panel's own green-grey LCD** is the
+  screen itself; **amber** `--accent` is the one action (the primary button,
+  the focus ring `--focus`, the genre pills, the hero's glass badge) with
+  `--on-accent` for text on it; **pale bronze** `--signal` is what the handheld
+  PRINTS (the boot log, a terminal reply, every readout); the **bronze** amber
+  token is the caution lamp (a key conflict, the "simulated" pills, the genre
   box); **alarm red** is a destructive action or a run ending.
 - **Signature element:** the bracketed readout block (`.rig-readout`) of
   monospaced cyan lines, printed under every screen the handheld produces.
@@ -130,8 +140,11 @@ The kit is in `styles/tailwind-input.css`: colour tokens (named in
 handheld's own pieces (`.rig`, `.rig-bezel`, `.rig-glass`, `.rig-scanlines`,
 `.rig-vignette`, `.rig-nav`, `.rig-window`, `.rig-readout`, `.rig-prompt`,
 `.rig-sim`, `.rig-keypad`, `.rig-button`, `.rig-sheet`) and the Arcade's
-(`.gw-cover-strip`, `.gw-cover-card`, `.gw-cover-art`, `.gw-poster`,
-`.gw-tag`, `.gw-list`, `.gw-row`, `.gw-genre-box`, `.gw-ftp`, `.gw-install-log`).
+(`.gw-grain`, `.gw-header`, `.gw-wordmark`, `.gw-menu-button`, `.gw-hero`,
+`.gw-hero-badge`, `.gw-hero-arrow`, `.gw-hero-dot`, `.gw-pill`,
+`.gw-cat-list`, `.gw-cat-row`, `.gw-cat-title`, `.gw-cat-tag`,
+`.gw-cat-detail`, `.gw-thumb`, `.gw-platform`, `.gw-howto`, `.gw-add-foot`,
+`.gw-slide-row`, `.gw-ftp`, `.gw-install-log`).
 
 - Colour comes only from the tokens, never a raw hex value or a stock palette
   class. The one deliberate exception is inside the panel art, which paints
@@ -143,36 +156,44 @@ handheld's own pieces (`.rig`, `.rig-bezel`, `.rig-glass`, `.rig-scanlines`,
 
 ## App-specific conventions
 
-- **Four files, one job each.** `public/lcd.js` is the segment kit (the art
-  language, the seven-segment digits, the printed labels, the cell bars) and
-  knows nothing about any title. `public/games.js` holds all eight titles as
+- **One job per file.** `public/lcd.js` is the segment kit (the art language,
+  the seven-segment digits, the printed labels, the cell bars) and knows nothing
+  about any title. `public/games.js` holds the code side of the titles: eight
   pure, deterministic state machines plus their segment drawing, and never
   touches the DOM (a save slot serializes a state, and a test can drive it with
-  no browser). `public/crt.js` is the picture pipeline: a 320x200 segment
+  no browser). `public/titles.originals.js` is the eight built-in titles as
+  plain data, the app's seed. `public/manage.js` is the manager's forms. `public/crt.js` is the picture pipeline: a 320x200 segment
   backbuffer scaled onto the visible canvas with the viewer's gamma,
   brightness, contrast, scanlines and curvature. `public/play.js` is the play
   screen (panel, keypad, readout, Memory Card, How to Play drawer) and the
   standalone how-to screen. Keep a title free of DOM, storage and the clock.
-- **The eight titles are one table plus one register.** `TITLES` in
-  `public/games.js` carries a title's metadata, its cover art, its genres, its
-  `howTo` blocks and its scoring tiers; `RUNNERS` carries its six functions.
-  `runnerFor(id)` merges the two, so a caller reaches a title by id only and a
-  title cannot be half-registered. Adding a ninth title is one entry in each,
-  with its own hand-drawn cover.
+- **A title's words are data; its rules stay code.** The eight built-ins live
+  in the `rr_titles` table (seeded on every boot from
+  `public/titles.originals.js`, so a fresh database renders the full Arcade)
+  and a person's own added titles are rows in the same table. `RUNNERS` in
+  `public/games.js` carries each built-in's six functions. `runnerFor(id)`
+  merges a loaded row with its code register, so a title is reached by id only
+  and cannot be half-registered, and an added title (no register entry) lists
+  and shows its picture but cannot run. `findTitle(id)` reads the loaded rows.
+  Adding a playable ninth title is still code: its rules and its panel, plus
+  its seed row.
 - **One save shape covers all eight.** A slot's JSONB carries at least
   `{ v, highScore, progress, ended }` plus whatever that title needs, so the
   Memory Card can list any title's slot. Every `load*` clamps each field and
   falls back to a fresh run, so a slot written by an older build still loads
   into a playable run.
-- **The handheld's data is six public tables**, keyed by the platform user id
-  and read or written only through `server.js`: `rr_settings` (the panel's
-  picture and sound), `rr_keymap` (the nine handheld keys), `rr_saves` (one row
-  per title and card), `rr_catalogue` (a title added to the Arcade and the URL
-  of its cover), `rr_skins` (the OS skin and the last provisioning transcript)
-  and `rr_snapshots` (the Features screen's snapshots). They hold one person's
-  own settings, key mapping, runs and labels, so they are public by default; no
-  secrets, no messages, no personal information beyond the platform username.
-  Nothing is kept in the browser.
+- **The handheld's data is eight public tables**, keyed by the platform user id
+  and read or written only through `server.js`: `rr_titles` (every title in the
+  Arcade, the eight built-ins with `built_in = true` and `owner_id = NULL` and
+  each added title owned by whoever added it), `rr_title_slides` (one person's
+  own banner slide list), `rr_settings` (the panel's picture and sound),
+  `rr_keymap` (the nine handheld keys), `rr_saves` (one row per title and
+  card), `rr_catalogue` (the older added-title table, kept and copied into
+  `rr_titles` on boot), `rr_skins` (the OS skin and the last provisioning
+  transcript) and `rr_snapshots` (the Features screen's snapshots). They hold
+  the collection plus one person's own settings, key mapping, runs and labels,
+  so they are public by default; no secrets, no messages, no personal
+  information beyond the platform username. Nothing is kept in the browser.
 - **The settings are the panel's picture and sound**, not decoration. Volume
   scales the synthesised tone, gamma, brightness and contrast filter the
   canvas, scanlines overlay it and curvature is the corner falloff, both in the
@@ -197,10 +218,15 @@ handheld's own pieces (`.rig`, `.rig-bezel`, `.rig-glass`, `.rig-scanlines`,
   identical path and `IS_STAGING` never gates it.
 - **The FTP tree is a read-only view** of what the app already holds. It
   uploads and downloads nothing and names no directory outside this app.
-- **Covers travel through platform storage.** An added title's cover goes up
-  through `usernode.uploadFile()` on the bridge path and only the returned URL
-  is persisted, never image bytes in Postgres. Where storage is not reachable,
-  the app degrades to the drawn cover and says so.
+- **Art travels through platform storage.** A title's thumbnail, banner and
+  bezel picture go up through `usernode.uploadFile()` on the bridge path and
+  only the returned URL and its file id are persisted, never image bytes in
+  Postgres. Platform files are immutable, so replacing a picture uploads a new
+  file and keeps the old file's id beside the URL for a later cleanup. Where
+  storage is not reachable, the file inputs are disabled, the drawn art is used
+  and the screen says so. An uploaded bezel sits in the frame around the panel;
+  the panel itself stays the drawn simulation, because an image cannot become
+  the animated segments.
 - **The eight titles are original to this app.** Four of their names carry a
   harmless reading on purpose: Battle Field is a hurdle track, Airforce Fighter
   a ridge glider, Guerrilla Warfare a blazed jungle trail, Submarine Battle a
@@ -211,11 +237,25 @@ handheld's own pieces (`.rig`, `.rig-bezel`, `.rig-glass`, `.rig-scanlines`,
   the seed rows, the covers and the copy. Nothing borrows a real hardware
   brand: no brand name, logo, bezel artwork, model number or photograph of real
   hardware appears anywhere. User-facing copy avoids em dashes.
-- **The admin panel is gated on an action, not a name.** The platform tells the
-  app who is signed in, never their role, so a panel gated on a hard-coded
-  username would refuse every reviewer and every voter. Any signed-in person
-  may add a title to their own Arcade, and whoever added an entry is the one
-  who may remove it, because every row is keyed to the platform user id from
-  the verified token. The screen names that path in words (`ADMIN_NOTE` in
-  `public/admin.js`), and a guest sees the panel read-only with the add form
-  turned off and a line saying why.
+- **Two panels, gated on an action, not a name.** The platform tells the app
+  who is signed in, never their role, so a panel gated on a hard-coded username
+  would refuse every reviewer and every voter. The **manager** (`#/manage`) is
+  where the collection is edited: any signed-in person may edit a built-in
+  title and that edit is shared, because the eight titles belong to the
+  collection; an added title belongs to whoever added it, and only that person
+  may edit or remove it. The **admin panel** (`#/admin`) is the older view of a
+  person's own added titles. Every row is keyed to the platform user id from
+  the verified token, so nobody edits in someone else's name; the screens name
+  that path in words (`MANAGE_NOTE` in `public/manage.js`, `ADMIN_NOTE` in
+  `public/admin.js`), and a guest reads both read-only with the forms turned
+  off and a line saying why.
+- **The manager edits what a title SAYS, never how it PLAYS.** Its fields are
+  the name, year, broad genre, genre box, sub-genres, the one-line description,
+  the description, the control list (each row's words plus which handheld
+  buttons it covers) and the three pictures. The words a row's `plays` names
+  are what the keypad prints on that button and what How to Play lists; which
+  physical key a handheld button is bound to stays the personal choice on the
+  Settings screen. The play rules, the panel art and the scoring stay in code,
+  so editing an added title's name never makes it playable and never breaks a
+  built-in's play screen. A run keys on the title's id, so renaming a title
+  leaves its Memory Card cards and its high score where they were.
