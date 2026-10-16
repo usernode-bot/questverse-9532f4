@@ -1,9 +1,14 @@
 {
-  "description": "Your gateway to web3 text-based adventures and arcade games.",
+  "name": "Pixmotion AI",
+  "description": "Pixmotion AI: a dark AI media editor with a project library, a preview player, an inspector, a multi-track timeline and an assistant. Image, video and export generation are simulated and say so; the assistant answers through the platform's own text AI under your grant.",
   "icon": {
     "image": "brand/icon-2.jpg"
   },
   "secrets": [],
+  "llm": {
+    "purpose": "Answers your questions about the project and drafts text for it",
+    "suggested_daily_cap_cents": 50
+  },
   "governance": {
     "approvers": "invited",
     "approvals": {
@@ -12,57 +17,160 @@
   },
   "tests": [
     {
-      "id": "arcade.default",
-      "name": "Arcade catalog renders",
-      "path": "/#/",
-      "expectSelector": ".arcade",
+      "id": "studio.editor",
+      "name": "Studio: the top bar, the library, the preview, the inspector and the timeline",
+      "path": "/#/studio",
+      "expectSelector": "[data-studio]",
       "visual": true,
       "impact": [
         "public/**",
         "styles/**",
+        "tailwind.config.js",
         "server.js",
+        "lib/**",
         "dapp.json"
       ]
     },
     {
-      "name": "Creator Studio renders for an allowed account",
-      "path": "/#/admin",
-      "expectSelector": "#admin-title"
+      "name": "The top bar renders with its breadcrumb",
+      "path": "/#/studio",
+      "expectSelector": "[data-topbar] [data-crumbs]",
+      "expectText": "Pixmotion AI"
     },
     {
-      "name": "Seasonal theme picker renders in Creator Studio",
-      "path": "/#/admin",
-      "expectSelector": "[data-theme-picker] [data-theme-option=\"halloween\"]"
+      "name": "The top bar carries the Export button",
+      "path": "/#/studio",
+      "expectSelector": "[data-topbar] [data-export]"
     },
     {
-      "name": "Background music uploader renders on each choice in Creator Studio",
-      "path": "/#/admin",
-      "expectSelector": "[data-music-editor] [data-trigger=\"timun-suri:0:A\"] [data-music-upload]"
+      "name": "The AI meter says the environment has no AI",
+      "path": "/#/studio",
+      "expectSelector": "[data-ai-meter][data-ai-state=\"unavailable\"]",
+      "expectText": "unavailable in this environment"
     },
     {
-      "name": "Prelude story field renders in the Creator Studio form",
-      "path": "/#/admin",
-      "expectSelector": "#admin-prelude"
+      "name": "The Manage AI permissions note points at the platform's Settings",
+      "path": "/#/studio/assistant",
+      "expectSelector": "[data-ai-permissions-note]",
+      "expectText": "Manage AI permissions"
     },
     {
-      "name": "Game preview renders",
-      "path": "/#/embed/timun-suri",
-      "expectText": "EMBED SOURCE"
+      "name": "The media library lists the seeded demo clip",
+      "path": "/#/studio/library",
+      "expectSelector": "[data-library] [data-media-row=\"staging-demo-clip-text\"] [data-media-badge]"
     },
     {
-      "name": "Title details render",
-      "path": "/#/title/timun-suri",
-      "expectText": "Distance gap"
+      "name": "The media library labels its rows as simulated",
+      "path": "/#/studio/library",
+      "expectSelector": "[data-library] [data-simulated=\"true\"]"
     },
     {
-      "name": "Runner starts a title",
-      "path": "/#/play/timun-suri",
-      "expectText": "DISTANCE GAP: MODERATE"
+      "name": "The search narrows the library to one row",
+      "path": "/#/studio/library?q=audio",
+      "expectSelector": "[data-library][data-query=\"audio\"][data-count=\"1\"] [data-media-row=\"staging-demo-clip-audio\"]"
     },
     {
-      "name": "Runner mid-run demo state",
-      "path": "/#/play/neon-syndicate?demo=1",
-      "expectText": "NEURAL INTEGRITY"
+      "name": "The empty search result says so",
+      "path": "/#/studio/library?q=nothing-matches-this",
+      "expectSelector": "[data-library][data-count=\"0\"] [data-library-empty]"
+    },
+    {
+      "name": "The preview player shows the scrub bar and the Play button",
+      "path": "/#/studio/clips/staging-demo-clip-text",
+      "expectSelector": "[data-stage] [data-play]"
+    },
+    {
+      "name": "The preview player has a scrub bar",
+      "path": "/#/studio/clips/staging-demo-clip-text",
+      "expectSelector": "[data-stage] [data-scrub]"
+    },
+    {
+      "name": "The timecode reads the project's own length",
+      "path": "/#/studio/clips/staging-demo-clip-text",
+      "expectSelector": "[data-stage] [data-timecode]",
+      "expectText": "/01:40"
+    },
+    {
+      "name": "The inspector's Video tab shows its six controls",
+      "path": "/#/studio/inspector/video",
+      "expectSelector": "[data-inspector] [data-inspector-panel=\"video\"] [data-control=\"volume\"] ~ [data-control=\"camera-preset\"] ~ [data-control=\"motion-realism\"] ~ [data-control=\"resolution\"] ~ [data-control=\"aspect\"] ~ [data-control=\"duration\"]"
+    },
+    {
+      "name": "The inspector offers the Audio & FX tab",
+      "path": "/#/studio/inspector/video",
+      "expectSelector": "[data-inspector] [data-inspector-tab=\"audio\"]"
+    },
+    {
+      "name": "The inspector's Animation tab shows the motion preset",
+      "path": "/#/studio/inspector/animation",
+      "expectSelector": "[data-inspector-panel=\"animation\"] [data-control=\"motion-preset\"]"
+    },
+    {
+      "name": "The timeline draws its ruler and four lanes",
+      "path": "/#/studio/timeline",
+      "expectSelector": "[data-timeline] [data-lane=\"text\"] ~ [data-lane=\"clip\"] ~ [data-lane=\"transition\"] ~ [data-lane=\"audio\"]"
+    },
+    {
+      "name": "The timeline shows the seeded selected clip with its trim handle",
+      "path": "/#/studio/timeline",
+      "expectSelector": "[data-lane=\"clip\"] [data-clip=\"staging-demo-clip-a\"] [data-trim]"
+    },
+    {
+      "name": "The timeline draws its ruler",
+      "path": "/#/studio/timeline",
+      "expectSelector": "[data-timeline] [data-ruler]"
+    },
+    {
+      "name": "The timeline carries the playhead",
+      "path": "/#/studio/timeline",
+      "expectSelector": "[data-timeline] [data-playhead]"
+    },
+    {
+      "name": "The assistant widget shows the four quick actions and the prompt bar",
+      "path": "/#/studio/assistant",
+      "expectSelector": "[data-assistant] [data-quick=\"text\"][data-real=\"true\"] ~ [data-quick=\"images\"][data-simulated=\"true\"] ~ [data-quick=\"avatar\"][data-simulated=\"true\"] ~ [data-quick=\"video\"][data-simulated=\"true\"]"
+    },
+    {
+      "name": "The assistant widget has a prompt bar",
+      "path": "/#/studio/assistant",
+      "expectSelector": "[data-assistant] [data-assistant-prompt]"
+    },
+    {
+      "name": "The assistant says the environment has no AI and disables its prompt",
+      "path": "/#/studio/assistant",
+      "expectSelector": "[data-assistant] [data-assistant-note][data-ai-state=\"unavailable\"]",
+      "expectText": "unavailable in this environment"
+    },
+    {
+      "name": "The assistant's prompt bar is disabled where there is no AI",
+      "path": "/#/studio/assistant",
+      "expectSelector": "[data-assistant] [data-assistant-prompt][disabled]"
+    },
+    {
+      "name": "The simulated video generation panel opens from its route",
+      "path": "/#/studio/generate/video",
+      "expectSelector": "[data-generate-panel][data-generate-panel-kind=\"video\"] [data-placeholder-add]"
+    },
+    {
+      "name": "The generation panel is labelled simulated",
+      "path": "/#/studio/generate/video",
+      "expectSelector": "[data-generate-panel][data-generate-panel-kind=\"video\"] [data-simulated=\"true\"]"
+    },
+    {
+      "name": "The generation panel reads its kind from the route",
+      "path": "/#/studio/generate/images",
+      "expectSelector": "[data-generate-panel][data-generate-panel-kind=\"images\"] [data-simulated=\"true\"]"
+    },
+    {
+      "name": "The export panel is a simulation and says no file was written",
+      "path": "/#/studio/export",
+      "expectSelector": "[data-export-panel] [data-simulated=\"true\"]",
+      "expectText": "No file was written"
+    },
+    {
+      "name": "A retired handheld address lands on the studio's not-here state",
+      "path": "/#/terminal",
+      "expectSelector": "[data-unknown] [data-back-to-studio]"
     }
   ]
 }

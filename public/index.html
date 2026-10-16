@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   
   <script>
   // usernode-dev-console@1
@@ -63,8 +63,8 @@
     try { post('info', ['[dev-console ready]'], { kind: 'ready' }); } catch (_) {}
   })();
   </script>
-  <title>QuestVerse</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='%23a855f7'/><circle cx='50' cy='50' r='18' fill='white'/></svg>">
+  <title>Pixmotion AI</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='6' y='14' width='88' height='72' rx='12' fill='%230d0f12' stroke='%238b5cf6' stroke-width='4'/><rect x='16' y='24' width='52' height='32' rx='4' fill='%23181b21' stroke='%233c4250' stroke-width='2'/><polygon points='36,30 36,50 52,40' fill='%238b5cf6'/><rect x='16' y='62' width='68' height='6' rx='3' fill='%233c4250'/><rect x='16' y='62' width='40' height='6' rx='3' fill='%238b5cf6'/><rect x='16' y='72' width='68' height='6' rx='3' fill='%233c4250'/><rect x='74' y='24' width='10' height='32' rx='3' fill='%23ec4899'/></svg>">
   <!-- Tailwind, PRECOMPILED for this app (was cdn.tailwindcss.com's
        in-browser engine plus an inline tailwind.config here). The config
        moved to tailwind.config.js in the repo root; npm run build compiles
@@ -78,6 +78,11 @@
        classes, swap this link for the platform-hosted engine instead:
        <script src="/usernode-tailwind/v1/tailwind.js"></script> -->
   <link rel="stylesheet" href="/tailwind.css">
+  <!-- The platform's native-feel UI kit, centrally hosted and loaded by
+       relative path like the bridge (never vendored). It gives the app's
+       buttons a native pressed state and supplies the toast capsule. -->
+  <link rel="stylesheet" href="/usernode-native/v1/native.css">
+  <script src="/usernode-native/v1/native.js"></script>
   <!-- The platform bridge, centrally hosted and loaded by RELATIVE path (the
        handler in server.js serves it under a plain "node server.js"; the
        platform's edge answers it everywhere else). Never vendor it and never
@@ -108,12 +113,10 @@
   </script>
 </head>
 <body class="min-h-screen bg-ground text-fg">
-  <!-- Drifting motes: pure CSS, no image, paused for reduced motion. -->
-  <div class="motes" aria-hidden="true"></div>
-
   <div id="app"></div>
 
-  <!-- Transient status: achievement unlocks and the storage note. -->
+  <!-- Transient status: a save confirmation, a key conflict. Used only when
+       the native kit is not there to supply its toast capsule. -->
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
   <script type="module" src="/app.js"></script>

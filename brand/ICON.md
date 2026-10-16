@@ -1,6 +1,6 @@
 # App icon
 
-`icon-2.jpg` is the app icon for QuestVerse. It is declared in the top-level
+`icon-2.jpg` is the app icon for Pixmotion AI. It is declared in the top-level
 `icon` block of `dapp.json` and read by the platform at deploy time to
 reconcile the app's home-screen tile (rounded and cropped to the tile). It is
 kept here, outside `public/`, so the app itself does not serve it.

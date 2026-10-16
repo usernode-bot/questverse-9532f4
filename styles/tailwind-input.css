@@ -13,82 +13,46 @@
 @tailwind utilities;
 
 /* ── Colour tokens ────────────────────────────────────────────────────────
- * QuestVerse is drawn as its own scene: ONE fixed dark cyber-fantasy look.
- * Unlike the starter template, :root and .dark carry the SAME values, so
- * the app renders identically in Homeroom's light and dark themes. This is
- * the documented exception for a game (see "## Design" in CLAUDE.md), and
- * a later change should not "fix" it.
+ * Pixmotion AI is drawn as its own console: ONE fixed dark look. It is
+ * the documented exception for an app that draws its own scene (see
+ * "## Design" in CLAUDE.md). :root and .dark carry the SAME values, so the
+ * app renders identically in Homeroom's light and dark themes. Do not "fix"
+ * this by adding a light look.
  *
- * The palette: a deep indigo-black ground, lifted card surfaces, a neon
- * violet accent for actions, a signal cyan used for the terminal-style
- * state readout, and an alarm magenta reserved for danger and game over.
- * Every text pair below holds 4.5:1 or more.
+ * The palette: a two-tone charcoal ground, translucent glass panels, a neon
+ * purple accent for the one primary action, a magenta lamp for anything
+ * simulated and for a caution, and an indigo signal for anything the studio
+ * PRINTS in its own voice (the readout lines, the AI meter's figure, the
+ * waveform, the ruler ticks).
  */
 @layer base {
   :root,
   .dark {
-    --ground: 8 8 16;         /* the page */
-    --surface: 17 18 32;      /* lists, cards, fields */
-    --raised: 28 30 48;       /* hovers, badges */
-    --fg: 232 234 246;        /* text */
-    --muted: 148 152 178;     /* secondary text */
-    --line: 52 55 82;         /* borders, dividers, skeletons */
-    --accent: 168 85 247;     /* neon violet: the one accent, primary action */
-    --on-accent: 20 8 40;     /* text on the accent */
-    --danger: 244 63 94;      /* alarm magenta: game over, destructive */
-    --on-danger: 30 5 16;     /* text on danger */
-    --focus: 34 211 238;      /* signal cyan: the keyboard focus ring */
-    --signal: 34 211 238;     /* signal cyan: the terminal-style state block */
-  }
-
-  /* Seasonal themes, picked in the Creator Studio and applied to every
-   * player as html[data-theme="<id>"] (public/themes.js). Each re-tints the
-   * neutrals, the accent and the signal; the alarm magenta (danger) stays
-   * the same so game over always reads the same. Neon, the default, is the
-   * block above and has no override. html[data-theme] outranks :root and
-   * .dark, so a theme wins in both Homeroom looks. Every text pair holds
-   * 4.5:1 or more. A new theme is a block here, an entry in public/themes.js
-   * and an id in THEME_IDS in server.js. */
-  html[data-theme="halloween"] {
-    --ground: 12 8 6;
-    --surface: 26 17 12;
-    --raised: 40 27 18;
-    --fg: 245 236 228;
-    --muted: 178 160 146;
-    --line: 70 50 36;
-    --accent: 249 115 22;     /* pumpkin orange */
-    --on-accent: 28 10 0;
-    --focus: 163 230 53;
-    --signal: 163 230 53;     /* lantern lime */
-  }
-  html[data-theme="winter"] {
-    --ground: 6 12 20;
-    --surface: 14 24 38;
-    --raised: 18 29 46;
-    --fg: 230 240 250;
-    --muted: 146 166 188;
-    --line: 44 64 90;
-    --accent: 56 189 248;     /* frost blue */
-    --on-accent: 4 20 34;
-    --focus: 167 243 208;
-    --signal: 167 243 208;    /* aurora mint */
-  }
-  html[data-theme="lunar"] {
-    --ground: 16 6 8;
-    --surface: 30 12 14;
-    --raised: 46 20 22;
-    --fg: 248 236 230;
-    --muted: 186 156 150;
-    --line: 78 38 40;
-    --accent: 250 204 21;     /* lantern gold */
-    --on-accent: 32 20 0;
-    --focus: 248 113 113;
-    --signal: 248 113 113;    /* festival red */
+    --ground: 13 15 18;       /* #0D0F12: the page and the panel behind the content */
+    --surface: 24 27 33;      /* cards, the inspector groups, the media rows, fields */
+    --raised: 34 38 46;       /* title bars, the tool row, the meter's plate, hovers, lanes */
+    --fg: 240 242 248;        /* text */
+    --muted: 154 161 176;     /* secondary text, the badges, the ruler */
+    --line: 60 66 80;         /* dividers, panel borders, the scrub track, the skeleton */
+    --edge: 139 92 246;       /* the glass rim, the selected clip's outline, placeholder blocks */
+    --accent: 139 92 246;     /* #8B5CF6 neon purple: the one primary action, the playhead */
+    --on-accent: 12 8 24;     /* text on the purple fill */
+    --danger: 248 113 113;    /* alarm red: removing a clip, a server fault */
+    --on-danger: 36 6 6;      /* text on danger */
+    --focus: 236 72 153;      /* magenta: the keyboard focus ring */
+    --signal: 167 139 250;    /* indigo: what the studio prints, the meter, the waveform */
+    --amber: 236 72 153;      /* #EC4899 magenta: the simulation lamp, the caution */
+    --on-amber: 24 6 16;      /* text on the magenta lamp */
   }
   /* el.hidden = true hides an element even when a class gives it a display
      (flex, the components below). */
   [hidden]:where(:not([hidden="until-found"])) {
     display: none !important;
+  }
+  /* Range inputs take the accent, so a slider and the scrub bar read as the
+     app's own without a custom thumb. */
+  input[type="range"] {
+    accent-color: rgb(var(--accent));
   }
 }
 
@@ -98,8 +62,8 @@
  * text-title, text-heading, text-body and text-small (tailwind.config.js).
  */
 @layer components {
-  /* Buttons: one primary per view; every card's Run/Resume is the primary
-     action of that card. At least 44 px each way, so they are easy to tap. */
+  /* Buttons: one primary per view; the studio's is Export, a sheet's is its
+     own action. At least 44 px each way, so they are easy to tap. */
   .btn-primary,
   .btn-secondary {
     @apply inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg px-4 text-body font-medium
@@ -116,11 +80,10 @@
   /* Text inputs, selects and textareas: <input class="field">, 44 px tall. */
   .field {
     @apply block min-h-11 w-full rounded-lg border border-line bg-surface px-3 py-2 text-body text-fg
-      placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-focus;
+      placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-focus disabled:opacity-50;
   }
 
-  /* A grouped list: <ul class="list"> of <li class="list-row">. The usual
-     way to show several things; prefer it to a stack of cards. */
+  /* A grouped list: <ul class="list"> of <li class="list-row">. */
   .list {
     @apply divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface;
   }
@@ -128,8 +91,7 @@
     @apply flex min-h-11 items-center gap-3 px-4 py-3;
   }
 
-  /* A card: one self-contained thing, usually something you tap. Never put
-     a card inside a card or a .list. */
+  /* A card: one self-contained thing. Never put a card inside a card. */
   .card {
     @apply rounded-xl border border-line bg-surface p-4;
   }
@@ -148,144 +110,345 @@
     @apply flex flex-col items-center gap-2 px-4 py-8 text-center;
   }
 
-  /* ── QuestVerse pieces ─────────────────────────────────────────────────
-   * Built from the tokens above; nothing here invents a colour or a font. */
+  /* ── The pieces kept from the handheld, restyled for the studio ──────── */
 
-  /* The terminal-style state readout. Monospace lines in the signal colour
-     inside a bracketed, bordered block. Mirrors each title's prompt. */
-  .state-block {
-    @apply rounded-lg border border-line bg-ground px-3 py-3 font-mono text-small leading-relaxed text-signal;
+  /* A window: a title bar over a body. The sheets and the about screen use it. */
+  .rig-window {
+    @apply flex min-h-0 flex-col overflow-hidden rounded-2xl border border-line bg-surface;
   }
-
-  /* One A/B/C choice: a full-width secondary button holding a large letter
-     and the action text. Left-aligned, unlike the centered buttons. */
-  .choice {
-    @apply flex w-full items-start gap-3 rounded-lg border border-line bg-surface px-4 py-3 text-left
-      text-body text-fg hover:bg-raised disabled:cursor-not-allowed disabled:opacity-50
-      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2
-      focus-visible:ring-offset-ground;
+  .rig-window-bar {
+    @apply flex flex-wrap items-center justify-between gap-2 border-b border-line bg-raised px-4 py-3;
   }
-  .choice-key {
-    @apply mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent font-mono text-small font-semibold text-on-accent;
+  .rig-window-body {
+    @apply flex flex-col gap-4 p-4;
   }
 
-  /* Tag pills on a title card and in the details panel. */
-  .tag {
-    @apply inline-flex items-center rounded-full bg-raised px-2.5 py-0.5 text-small text-muted;
+  /* Anything the studio PRINTS in its own voice: a readout line, the AI
+     meter's figure, a timecode. Monospace, in the signal colour. */
+  .rig-print {
+    @apply whitespace-pre-wrap font-mono text-small leading-relaxed text-signal;
+  }
+  /* A readout block of printed lines. The app's signature element. */
+  .rig-readout {
+    @apply flex flex-col gap-1 rounded-lg border border-line bg-ground px-3 py-3;
   }
 
-  /* A status pill: the same word the app uses for a title's state. */
-  .status-pill {
-    @apply inline-flex items-center rounded-full border border-line px-2.5 py-0.5 text-small font-medium;
+  /* The simulation lamp. Every simulated surface carries it, so a viewer
+     never mistakes a drawn plate, a placeholder or an export for the real
+     thing. */
+  .rig-sim {
+    @apply inline-flex items-center rounded-full border border-amber px-2.5 py-0.5 text-small font-medium
+      text-amber;
+  }
+  /* Its counterpart on the one real action: the Platform AI tag. */
+  .st-real {
+    @apply inline-flex items-center rounded-full border border-signal px-2.5 py-0.5 text-small font-medium
+      text-signal;
   }
 
-  /* The overlay panel behind the details drawer. Sits over the arcade and
-     is dismissed by backdrop tap or Escape (the JS owns behaviour). */
-  .sheet-backdrop {
-    @apply fixed inset-0 z-40 bg-ground/80 backdrop-blur-sm;
-  }
-  .sheet-panel {
-    @apply fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col overflow-y-auto border-l border-line bg-surface p-4;
-  }
-
-  /* A small transient toast, used for achievement unlocks and save notes. */
+  /* A small transient notice, used when the native kit's toast is absent. */
   .toast {
-    @apply fixed inset-x-0 bottom-4 z-50 mx-auto flex w-fit max-w-[calc(100%-2rem)] items-center gap-2 rounded-full border border-line bg-raised px-4 py-2 text-small text-fg;
+    @apply fixed inset-x-0 bottom-4 z-50 mx-auto flex w-fit max-w-[calc(100%-2rem)] items-center gap-2
+      rounded-full border border-line bg-raised px-4 py-2 text-small text-fg;
   }
 
-  /* The drifting motes behind the arcade. Pure CSS gradient dots, paused for
-     viewers who prefer reduced motion. */
-  .motes {
-    @apply pointer-events-none fixed inset-0 -z-10;
-    background-image:
-      radial-gradient(circle at 15% 25%, rgb(var(--accent) / 0.10) 0, transparent 38%),
-      radial-gradient(circle at 82% 12%, rgb(var(--signal) / 0.08) 0, transparent 42%),
-      radial-gradient(circle at 62% 78%, rgb(var(--accent) / 0.07) 0, transparent 46%);
+  /* A sheet: a full-screen layer over the studio, for a generation or the
+     export panel. */
+  .rig-sheet {
+    @apply fixed inset-0 z-40 flex flex-col overflow-y-auto bg-ground/80 p-3 backdrop-blur-sm sm:p-6;
+  }
+  .rig-sheet-panel {
+    @apply mx-auto flex w-full max-w-2xl flex-col gap-4;
   }
 
-  /* Terminal-log lines inside the runner (the transcript). */
-  .log-line {
+  /* ── The studio ──────────────────────────────────────────────────────── */
+
+  /* The one glassmorphism piece: a low-alpha surface with a blur and a lit
+     rim. Applied to the top bar, the panels, the timeline and the assistant. */
+  .st-glass {
+    @apply border border-line bg-surface/80 shadow-[inset_0_1px_0_rgb(var(--edge)/0.25)] backdrop-blur-md;
+  }
+  .st-root {
+    @apply mx-auto flex min-h-screen w-full max-w-[1400px] flex-col gap-3 p-3;
+  }
+  /* Three columns from 1024 px up; narrower screens stack the regions. */
+  .st-body {
+    @apply grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)_300px];
+  }
+  .st-side {
+    @apply flex min-w-0 flex-col gap-3;
+  }
+  .st-panel {
+    @apply flex min-w-0 flex-col gap-3 rounded-2xl p-3;
+  }
+  .st-sample-note {
+    @apply rounded-lg border border-line bg-raised px-3 py-2;
+  }
+
+  /* The top bar: the breadcrumb, undo and redo, the tool row, the avatars,
+     the AI meter and Export. */
+  .st-topbar {
+    @apply flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2;
+  }
+  .st-crumb {
+    @apply flex min-w-0 items-center gap-2 text-small text-muted;
+  }
+  .st-icon {
+    @apply inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-lg border border-line
+      bg-raised px-2 text-body text-fg hover:brightness-110 focus-visible:outline-none focus-visible:ring-2
+      focus-visible:ring-focus disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .st-icon-on {
+    @apply border-accent text-accent;
+  }
+  .st-tools {
+    @apply flex flex-wrap items-center gap-1 rounded-full border border-line bg-raised px-2 py-1 lg:mx-auto;
+  }
+  .st-tool {
+    @apply inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-small text-muted hover:text-fg
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  }
+  .st-tool-on {
+    @apply font-medium text-fg;
+  }
+  .st-tool-dot {
+    @apply hidden h-2 w-2 rounded-full bg-accent;
+  }
+  .st-tool-on .st-tool-dot {
+    @apply inline-block;
+  }
+  .st-avatars {
+    @apply flex items-center;
+  }
+  .st-avatar {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-full border border-amber/60 bg-raised text-small
+      font-medium text-fg;
+  }
+  .st-avatar + .st-avatar {
+    @apply -ml-2;
+  }
+
+  /* The AI usage meter: a 44 px plate, the label, the printed figure and a
+     thin bar that turns magenta at 90% of the cap. */
+  .st-meter {
+    @apply inline-flex min-h-11 flex-col justify-center rounded-lg border border-line bg-raised px-3 py-1;
+  }
+  .st-meter-line {
+    @apply flex items-baseline gap-1;
+  }
+  .st-meter-figure {
+    @apply font-semibold;
+  }
+  .st-meter-bar {
+    @apply relative mt-1 h-1 w-32 overflow-hidden rounded-full bg-line;
+  }
+  .st-meter-fill {
+    @apply absolute inset-y-0 left-0 rounded-full bg-signal;
+  }
+  .st-meter-warn .st-meter-fill {
+    @apply bg-amber;
+  }
+  .st-meter-warn .st-meter-figure {
+    @apply text-amber;
+  }
+
+  /* The media library: one thumbnail per row with its duration badge, its
+     caption and its selected state. */
+  .st-lib-list {
+    @apply flex flex-col gap-2 lg:max-h-[28rem] lg:overflow-y-auto;
+  }
+  .st-lib-list > li {
+    @apply relative;
+  }
+  .st-lib-thumb {
+    @apply relative flex w-full flex-col overflow-hidden rounded-xl border border-line bg-raised text-left
+      hover:border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  }
+  .st-lib-thumb-on {
+    @apply border-accent ring-1 ring-accent;
+  }
+  .st-lib-art {
+    @apply relative block h-20 w-full;
+    background: linear-gradient(120deg, rgb(var(--edge) / 0.45), rgb(var(--surface)));
+  }
+  .st-lib-img {
+    @apply absolute inset-0 h-full w-full object-cover;
+  }
+  .st-lib-badge {
+    @apply absolute left-2 top-14 rounded-md bg-ground/70 px-1.5 text-small text-fg;
+  }
+  .st-lib-cap {
+    @apply flex min-h-11 flex-col gap-1 px-2 py-2 text-small text-muted;
+  }
+  .st-lib-sim {
+    @apply text-small text-amber;
+  }
+  .st-lib-remove {
+    @apply absolute right-1 top-1 inline-flex h-11 w-11 items-center justify-center rounded-lg bg-ground/70
+      text-body text-danger hover:bg-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  }
+
+  /* The preview player: the frame, the scrub row and the lamp. */
+  .st-stage {
+    @apply flex min-w-0 flex-col gap-3 rounded-2xl p-3;
+  }
+  .st-stage-frame {
+    @apply relative flex aspect-video w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl
+      px-4 text-center;
+    background: linear-gradient(135deg, rgb(var(--edge) / 0.5), rgb(var(--surface)) 60%);
+  }
+  .st-stage-title {
+    @apply max-w-full break-words text-heading text-fg;
+  }
+  .st-scrub-row {
+    @apply flex flex-wrap items-center gap-2;
+  }
+  .st-scrub {
+    @apply h-11 min-w-32 flex-1 cursor-pointer;
+  }
+  .st-timecode {
     @apply text-body;
   }
 
-  /* ── Creator Studio pieces ─────────────────────────────────────────────
-   * The admin surface reuses the kit above; these are the few parts it adds. */
-
-  /* The top-nav tabs, one row holding Arcade, Creator Studio and the count. */
-  .tabs {
-    @apply flex w-fit flex-wrap items-center gap-1 rounded-lg border border-line bg-surface p-1;
+  /* The inspector: the tab row, a control group and its two shapes. */
+  .st-tabs {
+    @apply flex flex-wrap gap-1 border-b border-line;
   }
-  .tab {
-    @apply inline-flex min-h-11 items-center rounded-md px-3 text-small font-medium text-muted
-      hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  .st-tab {
+    @apply inline-flex min-h-11 items-center border-b-2 border-transparent px-2 text-small text-muted hover:text-fg
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
   }
-  .tab-active {
-    @apply bg-raised text-fg;
+  .st-tab-on {
+    @apply border-accent font-medium text-fg;
   }
-
-  /* Card and list art. The drawn SVG sits behind, and a listing's banner
-     image covers it when one is set. An image that fails to load removes
-     itself and the art shows again. */
-  .card-art {
-    @apply relative flex h-28 items-center justify-center overflow-hidden rounded-lg bg-ground px-2 py-1;
+  .st-subtabs {
+    @apply flex flex-wrap gap-1;
   }
-  .card-art-img {
-    @apply absolute inset-0 h-full w-full object-cover;
+  .st-subtab {
+    @apply inline-flex min-h-11 items-center rounded-full border border-line px-3 text-small text-muted;
   }
-  .thumb {
-    @apply relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-line bg-ground;
+  .st-subtab-on {
+    @apply border-accent text-fg;
   }
-  .thumb-img {
-    @apply absolute inset-0 h-full w-full object-cover;
+  .st-group {
+    @apply flex flex-col gap-1 rounded-xl border border-line bg-surface p-3;
   }
-  .thumb-fallback {
-    @apply flex h-full w-full items-center justify-center text-line;
+  .st-slider {
+    @apply h-11 w-full cursor-pointer;
   }
-  .thumb-svg {
-    @apply h-6 w-6;
+  .st-select {
+    @apply appearance-none bg-raised;
   }
 
-  /* The Creator Studio form. Field errors appear under their field once it
-     has been touched or Save has been pressed. */
-  .form-error {
-    @apply text-small text-danger;
+  /* The assistant widget. */
+  .st-assist {
+    @apply flex flex-col gap-3 rounded-2xl p-3;
   }
-  .form-notice {
-    @apply text-small text-accent;
+  .st-assist-quick-list {
+    @apply grid gap-2 sm:grid-cols-2;
   }
-
-  /* A seasonal theme's two colour dots in the Creator Studio picker. The
-     colour is the theme's own token value, set inline as data. */
-  .swatch {
-    @apply block h-3.5 w-3.5 rounded-full border border-line;
+  .st-assist-quick {
+    @apply flex min-h-11 flex-col items-start gap-1 rounded-xl border border-line bg-raised px-3 py-2 text-left
+      hover:border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
   }
-
-  /* The prelude story before a run: a full-screen layer where the text
-     rolls upward like film credits (the JS animates the crawl), with Skip
-     in a bar at the bottom. The roll fades in and out at the edges. With
-     reduced motion the text stands still and scrolls by hand. */
-  .prelude {
-    @apply fixed inset-0 z-50 flex flex-col bg-ground;
+  .st-assist-log {
+    @apply flex max-h-64 flex-col gap-2 overflow-y-auto rounded-lg border border-line bg-ground p-3;
   }
-  .prelude-viewport {
-    @apply relative flex-1 overflow-hidden;
-    -webkit-mask-image: linear-gradient(to bottom, transparent, black 12%, black 88%, transparent);
-    mask-image: linear-gradient(to bottom, transparent, black 12%, black 88%, transparent);
+  .st-assist-turn {
+    @apply flex flex-col gap-0.5;
   }
-  .prelude-static {
-    @apply overflow-y-auto py-16;
+  .st-assist-turn-assistant {
+    @apply border-l-2 border-signal pl-2;
   }
-  .prelude-crawl {
-    @apply mx-auto flex max-w-xl flex-col items-center gap-6 px-6 text-center;
-    will-change: transform;
+  .st-assist-prompt {
+    @apply flex flex-wrap items-center gap-2;
   }
-  .prelude-bar {
-    @apply flex justify-end border-t border-line px-4 pt-3;
-    padding-bottom: max(0.75rem, var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  .st-assist-prompt .field {
+    @apply min-w-40 flex-1;
+  }
+  .st-assist-note {
+    @apply text-small text-fg;
   }
 
-  /* The frame a listing with an external embed source opens in. */
-  .embed-frame {
-    @apply h-96 w-full rounded-lg border border-line bg-ground;
+  /* The timeline: the ruler, one lane per track, a clip block with its trim
+     handles, the audio waveform and the playhead. */
+  .st-track {
+    @apply flex flex-col gap-2 rounded-2xl p-3;
+  }
+  .st-lane {
+    @apply grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-2;
+  }
+  .st-lane-head {
+    @apply flex min-h-11 flex-col justify-center gap-1 overflow-hidden;
+  }
+  .st-lane-btn {
+    @apply inline-flex h-5 w-5 items-center justify-center rounded border border-line text-[0.65rem] text-muted
+      hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-50;
+  }
+  .st-lane-btn-on {
+    @apply border-amber text-amber;
+  }
+  .st-ruler {
+    @apply relative h-6 cursor-pointer overflow-hidden rounded-md border-b border-line;
+  }
+  .st-ruler-tick {
+    @apply absolute top-0 -translate-x-1/2 text-[0.65rem] text-muted;
+  }
+  /* A narrow screen shows every other tick, so the labels never overlap. */
+  .st-ruler-tick:nth-child(even) {
+    @apply hidden sm:block;
+  }
+  .st-ruler-tick:first-child {
+    @apply translate-x-0;
+  }
+  .st-ruler-tick:last-of-type {
+    @apply -translate-x-full;
+  }
+  .st-lane-body {
+    @apply relative min-h-11 cursor-crosshair select-none overflow-hidden rounded-lg border border-line bg-raised;
+    touch-action: none;
+  }
+  .st-lane-hidden {
+    @apply opacity-40;
+  }
+  .st-clip {
+    @apply absolute inset-y-1 flex cursor-pointer items-center overflow-hidden rounded-md border border-edge/60
+      bg-edge/40 px-2 text-small text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus;
+  }
+  .st-clip-on {
+    @apply border-2 border-fg;
+  }
+  .st-clip-text {
+    @apply border-line bg-raised;
+  }
+  .st-clip-transition {
+    @apply bg-amber/30 border-amber/60;
+  }
+  .st-clip-audio {
+    @apply border-line bg-ground;
+  }
+  .st-clip-label {
+    @apply relative z-10 truncate;
+  }
+  .st-clip-trimmed {
+    @apply absolute inset-y-0 left-0 bg-ground/60;
+    background-image: repeating-linear-gradient(135deg, rgb(var(--amber) / 0.5) 0 2px, transparent 2px 6px);
+  }
+  .st-clip-handle {
+    @apply absolute inset-y-0 z-20 w-3 cursor-ew-resize bg-amber;
+    touch-action: none;
+  }
+  .st-clip-handle-in {
+    @apply left-0 rounded-l;
+  }
+  .st-clip-handle-out {
+    @apply right-0 rounded-r;
+  }
+  .st-wave {
+    @apply absolute inset-x-2 inset-y-1.5 rounded;
+    background: repeating-linear-gradient(90deg, rgb(var(--signal) / 0.7) 0 2px, transparent 2px 5px);
+  }
+  .st-playhead {
+    @apply pointer-events-none absolute inset-y-0 z-30 w-0.5 bg-accent;
   }
 }

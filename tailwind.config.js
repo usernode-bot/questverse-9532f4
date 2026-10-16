@@ -50,12 +50,15 @@ module.exports = {
         fg: token('fg'), // text
         muted: token('muted'), // secondary text
         line: token('line'), // borders, dividers, skeletons
-        accent: token('accent'), // the one accent: the primary action
+        edge: token('edge'), // the glass rim, the selected clip's outline
+        accent: token('accent'), // the one accent: the primary action, the playhead
         'on-accent': token('on-accent'), // text on the accent
         danger: token('danger'),
         'on-danger': token('on-danger'),
         focus: token('focus'), // the keyboard focus ring
-        signal: token('signal'), // the terminal-style state readout
+        signal: token('signal'), // what the studio prints: readouts, the AI meter, the waveform
+        amber: token('amber'), // the simulation lamp, and a caution (the meter near its cap)
+        'on-amber': token('on-amber'), // text on the lamp
       },
       // The type scale: four sizes, and nothing in between.
       fontSize: {

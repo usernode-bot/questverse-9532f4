@@ -1,4 +1,4 @@
-// The small DOM helper shared by the app shell and the Creator Studio.
+// The small DOM helper this app's screens are built with.
 
 export function el(tag, attrs, ...children) {
   const node = document.createElement(tag);
@@ -10,7 +10,9 @@ export function el(tag, attrs, ...children) {
     else if (k.startsWith('on')) node.addEventListener(k.slice(2).toLowerCase(), v);
     else node.setAttribute(k, v);
   }
-  for (const c of children.flat()) {
+  // flat(Infinity): an array of nodes can arrive nested (spreadable lists),
+  // and append() would stringify anything left unflattened.
+  for (const c of children.flat(Infinity)) {
     if (c == null) continue;
     node.append(c.nodeType ? c : document.createTextNode(String(c)));
   }

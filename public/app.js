@@ -1,698 +1,101 @@
-// QuestVerse client app.
+// Pixmotion AI client app.
 //
 // One HTML shell, these screens off the URL hash:
-//   #/                  the Arcade catalog
-//   #/title/<titleId>   a title's Details (the drawer as its own address)
-//   #/play/<titleId>    the Runner (?demo=1 opens a fixed mid-run state)
-//   #/admin             the Creator Studio (publish, edit and remove listings)
-//   #/embed/<listingId> a listing's embed source, previewed
+//   #/studio                  the editor (also the default route)
+//   #/studio/library?q=       the editor with the library's search applied
+//   #/studio/clips/<id>       the editor with that media row selected
+//   #/studio/inspector/<tab>  the editor with that inspector tab showing
+//   #/studio/timeline         the editor, scrolled to the timeline
+//   #/studio/assistant        the editor, scrolled to the assistant widget
+//   #/studio/export           the editor with the simulated export panel open
+//   #/studio/generate/<kind>  the editor with a simulated generation panel open
+//   #/about                   what the studio is and what in it is simulated
 //
-// Progress, achievements and the Creator Studio's listings live in
-// localStorage, namespaced per signed-in person when /api/me answers and per
-// browser otherwise. No server state.
+// Everything the app keeps for a person lives on the server (server-api.js):
+// the browser holds no per-user state. Image, avatar, video, sound and export
+// generation are simulated and say so on screen. The assistant chat is the one
+// real generation: the platform's text AI, under the reader's own grant.
 
-import { CATALOG, findTitle, demoState } from './catalog.js';
-import {
-  createRun, applyChoice, applyCustom, renderBlock, titleStatus,
-  achievementsFor,
-} from './engine.js';
 import { el } from './dom.js';
 import {
-  DEFAULT_LISTINGS, loadListings, findListing, renderAdmin, renderEmbed,
-} from './admin.js';
-import {
-  DEFAULT_THEME, isTheme, themeName, applyTheme, cachedTheme, cacheTheme,
-} from './themes.js';
-import {
-  triggerKey, preloadTitle, playUrl, stopMusic, setMuted, isMuted,
-} from './music.js';
+  setToken, loadStudio, startProject, saveProject, addMedia, removeMedia, saveMediaArt, saveTimeline,
+  askAssistant, uploadsAvailable, uploadArt, ApiError,
+} from './server-api.js';
+import { renderStudio, APP_NAME, TABS } from './studio.js';
+import { clampMs, movePlayhead, withTrim, nextSlot, timecodePair } from './timeline.js';
+import { GENERATION_KINDS, placeholderTitle, SIM_LINE } from './generate.js';
+import { readUsage, sendMessage, historyFor, MESSAGES } from './assistant.js';
 
 const app = document.getElementById('app');
 const token = new URLSearchParams(window.location.search).get('token') || '';
+setToken(token);
 
-/* ── Storage ─────────────────────────────────────────────────────────────
- * Everything is namespaced qv1:<uid>:... and versioned with v so the shape
- * can migrate. A browser that refuses storage still plays; we say so once.
+/* ── The app's state ─────────────────────────────────────────────────────
+ * One object, filled from GET /api/studio. Every screen reads it and every
+ * write goes back to the server, so two surfaces never disagree about the
+ * project.
  */
-const NS = 'qv1';
-let uid = 'anon';
-// Only the allowed Homeroom account may open the Creator Studio. The flag
-// comes from the server (it authorises from the verified iframe token's
-// username), never from storage or the client, so it cannot be spoofed here.
-let studio = false;
-let storageOk = true;
-let warnedAboutStorage = false;
-// The seasonal theme live for every player. Start from the last one this
-// browser saw, then take the server's answer in loadIdentity().
-let liveTheme = cachedTheme();
-applyTheme(liveTheme);
+const studio = {
+  ready: false,
+  failure: null,
+  username: '',
+  signedIn: false,
+  project: null,
+  media: [],
+  tracks: [],
+  clips: [],
+  transcript: [],
+  sample: false,
+  readOnly: false,
+  readOnlyWrite: false,
+  assistant: { enabled: false, model: null, lastSpentCents: null, lastCapCents: null },
+  usage: null,
+  uploads: false,
+  selection: { mediaId: null, clipId: null },
+  playhead: 0,
+  playing: false,
+  loop: false,
+  tab: 'video',
+  query: '',
+  tool: 'select',
+  voice: { voice: 'river', tone: 'warm', language: 'en' },
+  instructions: '',
+  sheet: { kind: null, options: null },
+  chat: { busy: false, note: '', draft: '' },
+  saving: false,
+  undo: [],
+  redo: [],
+};
 
-function lsGet(key) {
-  if (!storageOk) return null;
-  try {
-    const raw = window.localStorage.getItem(NS + ':' + uid + ':' + key);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function lsSet(key, value) {
-  if (!storageOk) return;
-  try {
-    window.localStorage.setItem(NS + ':' + uid + ':' + key, JSON.stringify(value));
-  } catch {
-    storageOk = false;
-    noteStorage();
-  }
-}
-
-function lsDel(key) {
-  if (!storageOk) return;
-  try { window.localStorage.removeItem(NS + ':' + uid + ':' + key); } catch { /* ignore */ }
-}
-
-// In-memory fallback so a run still works when storage is refused.
-const memory = new Map();
-const memGet = (k) => (memory.has(k) ? memory.get(k) : null);
-const memSet = (k, v) => memory.set(k, v);
-
-function progressKey(titleId) { return 'progress:' + titleId; }
-function getProgress(titleId) {
-  const p = lsGet(progressKey(titleId));
-  if (p) return p;
-  return storageOk ? null : memGet(progressKey(titleId));
-}
-function setProgress(titleId, state) {
-  const copy = Object.assign({}, state);
-  lsSet(progressKey(titleId), copy);
-  memSet(progressKey(titleId), copy);
-}
-function clearProgress(titleId) {
-  lsDel(progressKey(titleId));
-  memory.delete(progressKey(titleId));
-}
-
-const GLOBAL_ACHIEVEMENTS = [
-  { key: 'arcade-explorer', label: 'Arcade Explorer', hint: 'Open all five titles.' },
-];
-
-function getUnlocked() { return lsGet('achievements') || {}; }
-function unlock(keys) {
-  if (!keys.length) return [];
-  const unlocked = getUnlocked();
-  const fresh = [];
-  for (const k of keys) {
-    if (!unlocked[k]) { unlocked[k] = Date.now(); fresh.push(k); }
-  }
-  if (fresh.length) lsSet('achievements', unlocked);
-  return fresh;
-}
-function getSeen() { return lsGet('seen') || {}; }
-function markSeen(titleId) {
-  const seen = getSeen();
-  seen[titleId] = true;
-  lsSet('seen', seen);
-  const all = CATALOG.every((t) => seen[t.id]);
-  if (all) return unlock(['arcade-explorer']);
-  return [];
-}
+/* ── Small helpers ─────────────────────────────────────────────────────── */
 
 let toastTimer = null;
+// The platform's native kit owns the toast idiom (a capsule that never steals
+// a tap). The app's own element is the fallback for a load without the kit.
 function toast(message) {
-  const el = document.getElementById('toast');
-  el.textContent = message;
-  el.hidden = false;
+  if (window.unNative && typeof window.unNative.toast === 'function') {
+    try { window.unNative.toast(message); return; } catch { /* fall through */ }
+  }
+  const node = document.getElementById('toast');
+  if (!node) return;
+  node.textContent = message;
+  node.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+  toastTimer = setTimeout(() => { node.hidden = true; }, 2600);
 }
 
-function noteStorage() {
-  if (warnedAboutStorage) return;
-  warnedAboutStorage = true;
-  toast('Progress will not be saved in this browser.');
-}
-
-const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-
-// The published catalog: the built-in titles plus anything the Creator
-// Studio has stored. Reloaded whenever the admin screen changes a listing.
-let listings = DEFAULT_LISTINGS;
-function reloadListings() { listings = loadListings(uid); }
-
-/* ── Key art ─────────────────────────────────────────────────────────────
- * Drawn in the app's own colours (currentColor + tokens). One motif per
- * built-in title, chosen by its index. A listing that carries a banner
- * shows it instead; built-in titles ship no banner, so they keep the art.
- */
-function artSvg(listing) {
-  const motifs = [
-    // jungle ridge
-    '<path d="M0 62 L28 30 L46 50 L70 18 L100 62 Z" fill="currentColor" opacity="0.55"/>' +
-    '<circle cx="78" cy="16" r="7" fill="none" stroke="currentColor" stroke-width="2"/>',
-    // village gate and shroud
-    '<path d="M18 64 V34 h22 v30" fill="none" stroke="currentColor" stroke-width="2"/>' +
-    '<path d="M62 20 c10 0 16 9 16 20 v24" fill="none" stroke="currentColor" stroke-width="2" opacity="0.6"/>' +
-    '<path d="M52 64 V40 h20 v24" fill="none" stroke="currentColor" stroke-width="2"/>',
-    // chip and signal
-    '<rect x="30" y="22" width="40" height="34" rx="4" fill="none" stroke="currentColor" stroke-width="2"/>' +
-    '<path d="M40 30 v18 M50 30 v18 M60 30 v18" stroke="currentColor" stroke-width="2" opacity="0.6"/>' +
-    '<path d="M6 39 h16 M78 39 h16" stroke="currentColor" stroke-width="2"/>',
-    // ship and airlock
-    '<path d="M20 44 L84 24 L70 52 L34 58 Z" fill="none" stroke="currentColor" stroke-width="2" opacity="0.7"/>' +
-    '<circle cx="52" cy="42" r="6" fill="none" stroke="currentColor" stroke-width="2"/>',
-    // tablet and strata
-    '<rect x="34" y="16" width="32" height="44" rx="3" fill="none" stroke="currentColor" stroke-width="2"/>' +
-    '<path d="M40 28 h20 M40 36 h20 M40 44 h12" stroke="currentColor" stroke-width="2" opacity="0.6"/>',
-  ];
-  const i = DEFAULT_LISTINGS.findIndex((t) => t.id === listing.id);
-  return '<svg viewBox="0 0 100 72" class="h-16 w-full text-accent" aria-hidden="true" fill="none">' +
-    motifs[(i + motifs.length) % motifs.length] + '</svg>';
-}
-
-function keyArt(listing) {
-  const wrap = el('div', { class: 'card-art', html: artSvg(listing) });
-  if (listing.banner) {
-    const img = el('img', {
-      class: 'card-art-img', src: listing.banner, alt: '',
-      onerror: () => { img.remove(); },
-    });
-    wrap.append(img);
+function apiMessage(err, fallback) {
+  if (err instanceof ApiError) {
+    if (err.status === 401) return 'Sign in to Homeroom to change anything in the studio.';
+    return err.message || fallback;
   }
-  return wrap;
+  return fallback;
 }
 
-/* ── Arcade ────────────────────────────────────────────────────────────── */
-function statusPill(listing) {
-  const builtIn = findTitle(listing.id);
-  if (!builtIn) return el('span', { class: 'status-pill text-muted', 'data-status': 'not-started', text: 'Not started' });
-  const progress = getProgress(listing.id);
-  const status = titleStatus(builtIn, progress && progress.started ? progress : null);
-  const tone = status.key === 'completed'
-    ? (progress && progress.outcome === 'win' ? 'border-accent text-accent' : 'border-danger text-danger')
-    : (status.key === 'in-progress' ? 'border-signal text-signal' : 'text-muted');
-  return el('span', { class: 'status-pill ' + tone, 'data-status': status.key, text: status.label });
+function go(hash) {
+  if (window.location.hash === hash) render();
+  else window.location.hash = hash;
 }
-
-function tagList(listing) {
-  return String(listing.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
-}
-
-function gameNav(active) {
-  const tab = (label, href, key) => el('a', {
-    class: 'tab' + (active === key ? ' tab-active' : ''),
-    href,
-    'aria-current': active === key ? 'page' : null,
-    text: label,
-  });
-  const tabs = [tab('Arcade', '#/', 'arcade')];
-  // The Creator Studio tab is hidden from everyone but the allowed account.
-  if (studio) tabs.push(tab('Creator Studio', '#/admin', 'admin'));
-  return el('nav', { class: 'tabs', 'aria-label': 'Views' },
-    tabs,
-    el('span', { class: 'status-pill text-muted', 'data-count': listings.length, text: String(listings.length) }),
-  );
-}
-
-function renderArcade() {
-  const cards = listings.map((listing) => {
-    const builtIn = findTitle(listing.id);
-    const progress = getProgress(listing.id);
-    const started = !!(progress && progress.started);
-    const running = started && !progress.finished;
-    const primary = builtIn
-      ? { href: '#/play/' + listing.id, text: running ? 'Resume' : 'Run', action: running ? 'resume' : 'run' }
-      : { href: '#/embed/' + listing.id, text: 'Play', action: 'play' };
-    return el('article', { class: 'card flex flex-col gap-3', 'data-title-id': listing.id },
-      keyArt(listing),
-      el('div', { class: 'flex flex-col gap-1' },
-        el('h2', { class: 'text-heading', text: listing.title }),
-        el('p', { class: 'text-body text-muted', text: listing.tagline }),
-      ),
-      el('div', { class: 'flex flex-wrap gap-2' }, tagList(listing).map((t) => el('span', { class: 'tag', text: t }))),
-      el('div', {}, statusPill(listing)),
-      el('div', { class: 'mt-auto flex flex-wrap gap-2' },
-        el('a', {
-          class: 'btn-primary',
-          href: primary.href,
-          text: primary.text,
-          'data-action': primary.action,
-        }),
-        el('a', {
-          class: 'btn-secondary',
-          href: '#/title/' + listing.id,
-          text: 'Details',
-          'data-action': 'details',
-        }),
-      ),
-    );
-  });
-
-  return el('main', { class: 'mx-auto flex max-w-3xl flex-col gap-8 px-4 py-10' },
-    gameNav('arcade'),
-    el('header', { class: 'flex flex-col gap-2' },
-      el('p', { class: 'section-label', text: 'Arcade' }),
-      el('h1', { class: 'text-title', text: 'QuestVerse' }),
-      el('p', { class: 'text-body text-muted', text: 'Text adventures. Pick a title and play it right here.' }),
-      liveTheme !== DEFAULT_THEME
-        ? el('span', { class: 'status-pill w-fit border-accent text-accent', 'data-event-theme': liveTheme, text: themeName(liveTheme) + ' event' })
-        : null,
-    ),
-    cards.length
-      ? el('section', { class: 'arcade grid gap-4 sm:grid-cols-2' }, cards)
-      : el('p', { class: 'state-empty text-body text-muted', text: 'No games are published. Open the Creator Studio to add one.' }),
-  );
-}
-
-/* ── Details drawer ────────────────────────────────────────────────────── */
-function renderNotFound() {
-  return el('main', { class: 'mx-auto flex max-w-md flex-col gap-8 px-4 py-10' },
-    el('h1', { class: 'text-title', text: 'Title not found' }),
-    el('p', { class: 'text-body text-muted', text: 'That title is not in the Arcade.' }),
-    el('div', {}, el('a', { class: 'btn-primary', href: '#/', text: 'Back to Arcade' })),
-  );
-}
-
-// Reached when someone other than the allowed account opens #/admin. The
-// Creator Studio tab is hidden for them, so this only shows on a direct
-// visit to the URL.
-function renderNotAuthorised() {
-  return el('main', { class: 'mx-auto flex max-w-md flex-col gap-8 px-4 py-10' },
-    el('h1', { class: 'text-title', 'data-unauthorised': 'studio', text: 'Not authorised' }),
-    el('p', { class: 'text-body text-muted', text: 'The Creator Studio is private to this account.' }),
-    el('div', {}, el('a', { class: 'btn-primary', href: '#/', text: 'Back to Arcade' })),
-  );
-}
-
-function detailList(rows) {
-  return el('ul', { class: 'list' }, rows.map(([label, value]) => el('li', { class: 'list-row justify-between' },
-    el('span', { class: 'text-body', text: label }),
-    el('span', { class: 'text-body text-muted', text: value }),
-  )));
-}
-
-function splitItems(text) {
-  return String(text || '').split(',').map((s) => s.trim()).filter(Boolean);
-}
-
-function renderDetails(listing, builtIn, onClose) {
-  // Move focus into the dialog on open; return it to whatever opened the
-  // drawer when it closes (spec: the drawer is a real dialog).
-  const opener = document.activeElement;
-  const close = () => {
-    if (opener && opener.focus) { try { opener.focus(); } catch { /* ignore */ } }
-    onClose();
-  };
-  const progress = getProgress(listing.id);
-  const status = builtIn && progress && progress.started
-    ? titleStatus(builtIn, progress)
-    : { key: 'not-started', label: 'Not started' };
-  const unlocked = getUnlocked();
-  const running = progress && progress.started && !progress.finished;
-  const primary = builtIn
-    ? { href: '#/play/' + listing.id, text: running ? 'Resume' : 'Run' }
-    : { href: '#/embed/' + listing.id, text: 'Play' };
-  let confirming = false;
-
-  const resetRow = el('div', { class: 'flex flex-wrap items-center gap-2' });
-
-  function paintReset() {
-    resetRow.replaceChildren();
-    if (!progress || !progress.started) {
-      resetRow.append(el('span', { class: 'text-small text-muted', text: 'No progress saved for this title.' }));
-      return;
-    }
-    if (!confirming) {
-      resetRow.append(el('button', {
-        class: 'btn-secondary', type: 'button', text: 'Reset progress',
-        onClick: () => { confirming = true; paintReset(); },
-      }));
-      return;
-    }
-    resetRow.append(
-      el('span', { class: 'text-small text-muted', text: 'Reset your progress for this title?' }),
-      el('button', {
-        class: 'btn-secondary', type: 'button', text: 'Confirm reset',
-        onClick: () => { clearProgress(title.id); confirming = false; onClose(); }
-      }),
-      el('button', {
-        class: 'btn-secondary', type: 'button', text: 'Cancel',
-        onClick: () => { confirming = false; paintReset(); },
-      }),
-    );
-  }
-  paintReset();
-
-  const body = el('div', { class: 'flex flex-col gap-6' },
-    el('div', { class: 'flex items-start justify-between gap-3' },
-      el('div', { class: 'flex flex-col gap-1' },
-        el('p', { class: 'section-label', text: 'Title details' }),
-        el('h2', { class: 'text-title', text: listing.title }),
-        el('p', { class: 'text-body text-muted', text: listing.tagline }),
-      ),
-      el('button', {
-        class: 'btn-secondary', type: 'button', text: 'Close', 'aria-label': 'Close details',
-        onClick: close,
-      }),
-    ),
-    el('div', { class: 'flex flex-wrap items-center gap-2' },
-      tagList(listing).map((t) => el('span', { class: 'tag', text: t })),
-      el('span', { class: 'status-pill ' + (status.key === 'completed' ? 'border-accent text-accent' : 'text-muted'), text: status.label }),
-    ),
-    el('section', { class: 'flex flex-col gap-2' },
-      el('h3', { class: 'section-label', text: builtIn ? 'Lore' : 'Story' }),
-      el('p', { class: 'text-body', text: builtIn ? builtIn.lore : listing.story }),
-      builtIn ? el('p', { class: 'text-body text-muted', text: builtIn.background }) : null,
-    ),
-    builtIn ? el('section', { class: 'flex flex-col gap-2' },
-      el('h3', { class: 'section-label', text: 'State variables' }),
-      detailList(builtIn.stateVars.map((v) => [v.label, v.value])),
-    ) : el('section', { class: 'flex flex-col gap-2' },
-      el('h3', { class: 'section-label', text: 'Starting scene' }),
-      el('p', { class: 'state-block', text: listing.startScene }),
-    ),
-    splitItems(listing.inventory).length ? el('section', { class: 'flex flex-col gap-2' },
-      el('h3', { class: 'section-label', text: 'Starting inventory' }),
-      el('ul', { class: 'list' }, splitItems(listing.inventory).map((i) => el('li', { class: 'list-row', text: i }))),
-    ) : null,
-    builtIn ? el('section', { class: 'flex flex-col gap-2' },
-      el('h3', { class: 'section-label', text: 'Stages' }),
-      el('ol', { class: 'list' }, builtIn.stageNames.map((s, i) => el('li', { class: 'list-row gap-3' },
-        el('span', { class: 'text-small text-muted', text: 'Stage ' + (i + 1) }),
-        el('span', { class: 'text-body', text: s }),
-      ))),
-    ) : null,
-    builtIn ? el('section', { class: 'flex flex-col gap-2' },
-      el('h3', { class: 'section-label', text: 'Achievements' }),
-      el('ul', { class: 'list' }, builtIn.achievements.map((a) => {
-        const got = !!unlocked[a.key];
-        return el('li', { class: 'list-row items-start gap-3' },
-          el('span', { class: 'mt-0.5 text-small ' + (got ? 'text-accent' : 'text-muted'), text: got ? 'Earned' : 'Locked' }),
-          el('div', {},
-            el('p', { class: 'text-body font-medium', text: a.label }),
-            el('p', { class: 'text-small text-muted', text: a.hint }),
-          ),
-        );
-      })),
-    ) : null,
-    el('section', { class: 'flex flex-col gap-2' },
-      el('h3', { class: 'section-label', text: builtIn ? 'Progress' : 'Listing' }),
-      builtIn ? resetRow : el('p', { class: 'text-small text-muted', text: 'Embed source: ' + listing.embedUrl }),
-    ),
-    el('p', { class: 'text-small text-muted', text: 'Publisher: ' + listing.author + (builtIn ? ' | Version ' + builtIn.version : '') }),
-    el('div', { class: 'flex flex-wrap gap-2' },
-      el('a', { class: 'btn-primary', href: primary.href, text: primary.text, 'data-action': 'run' }),
-    ),
-  );
-
-  const panel = el('aside', {
-    class: 'sheet-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': listing.title + ' details',
-  }, body);
-
-  const backdrop = el('div', { class: 'sheet-backdrop', onClick: close });
-
-  return el('div', {}, [backdrop, panel]);
-}
-
-/* ── Runner ────────────────────────────────────────────────────────────── */
-let runner = null; // { title, state, demo, resumeBanner }
-let typeToken = 0;   // cancels an in-flight typewriter when the runner repaints
-
-function saveRunner() {
-  if (!runner || runner.demo) return;
-  runner.state.started = true;
-  setProgress(runner.title.id, runner.state);
-}
-
-// Types one line out, character by character. Cancelled by bumping typeToken.
-// A viewer who prefers reduced motion gets the whole line at once.
-function typeInto(node, text) {
-  if (reducedMotion.matches) { node.textContent = text; return; }
-  const my = ++typeToken;
-  node.textContent = '';
-  let i = 0;
-  (function step() {
-    if (my !== typeToken) return;
-    node.textContent = text.slice(0, i++);
-    if (i <= text.length) setTimeout(step, 16);
-  })();
-}
-
-function afterAction(nextState) {
-  runner.resumeBanner = null;
-  runner.state = nextState;
-  const earned = achievementsFor(runner.title, nextState, nextState.finished ? nextState.outcome : 'move');
-  const fresh = unlock(earned);
-  if (fresh.length) {
-    const title = runner.title;
-    const a = title.achievements.find((x) => x.key === fresh[0]);
-    if (a) toast('Achievement unlocked: ' + a.label);
-  }
-  saveRunner();
-  paintRunner();
-}
-
-function paintRunner() {
-  const { title, state, demo } = runner;
-  const screen = document.getElementById('runner-screen');
-  if (!screen) return;
-
-  const stage = title.stages[state.stageIndex];
-  const terminal = state.outcome;
-  const blockLines = renderBlock(title, state);
-
-  const stateBlock = el('div', { class: 'state-block', role: 'status', 'aria-live': 'polite' },
-    blockLines.map((line) => el('div', { text: line })));
-
-  const log = el('div', { class: 'flex flex-col gap-3', 'data-testid': 'transcript' });
-  const entries = state.transcript;
-  entries.forEach((entry, i) => {
-    const isLast = i === entries.length - 1;
-    let cls = 'log-line text-signal';
-    let text = entry.text;
-    if (entry.kind === 'scene') cls = 'log-line text-fg';
-    else if (entry.kind === 'action') { cls = 'log-line text-small text-muted'; text = '> ' + entry.text; }
-    else if (entry.kind === 'win') cls = 'log-line text-accent';
-    else if (entry.kind === 'lose') cls = 'log-line text-danger';
-    const p = el('p', { class: cls });
-    log.append(p);
-    // Only the newest scene types itself out; everything already read is
-    // instant, so a check or a re-render never waits on the animation.
-    if (isLast && entry.kind === 'scene' && !terminal) typeInto(p, text);
-    else p.textContent = text;
-  });
-
-  const banner = runner.resumeBanner
-    ? el('section', { class: 'card flex flex-wrap items-center justify-between gap-3' },
-        el('p', { class: 'text-body', text: 'You left off at Stage ' + (runner.resumeBanner.stageIndex + 1) + '.' }),
-        el('div', { class: 'flex gap-2' },
-          el('button', {
-            class: 'btn-primary', type: 'button', text: 'Resume',
-            onClick: () => { runner.resumeBanner = null; paintRunner(); },
-          }),
-          el('button', {
-            class: 'btn-secondary', type: 'button', text: 'Start over',
-            onClick: () => { stopMusic(); runner.resumeBanner = null; runner.state = createRun(title); saveRunner(); paintRunner(); },
-          }),
-        ),
-      )
-    : null;
-
-  const header = el('header', { class: 'flex flex-col gap-3' },
-    el('div', { class: 'flex flex-wrap items-center justify-between gap-2' },
-      el('a', { class: 'btn-secondary', href: '#/', text: 'Back to Arcade' }),
-      el('div', { class: 'flex gap-2' },
-        runner.music && runner.music.size
-          ? el('button', {
-            class: 'btn-secondary', type: 'button', 'data-music-toggle': '',
-            text: isMuted() ? 'Music off' : 'Music on', 'aria-pressed': isMuted() ? 'false' : 'true',
-            onClick: () => { setMuted(!isMuted()); paintRunner(); },
-          })
-          : null,
-        el('button', {
-          class: 'btn-secondary', type: 'button', text: 'Restart',
-          onClick: () => { stopMusic(); runner.state = createRun(title); saveRunner(); paintRunner(); },
-        }),
-      ),
-    ),
-    el('div', { class: 'flex flex-col gap-1' },
-      el('p', { class: 'section-label', text: demo ? 'Demo run' : 'Stage ' + (state.stageIndex + 1) + ' of ' + title.stages.length }),
-      el('h1', { class: 'text-title', text: title.title }),
-    ),
-    stateBlock,
-  );
-
-  let choicesArea;
-  if (terminal) {
-    choicesArea = el('section', { class: 'flex flex-col gap-3' },
-      el('p', { class: 'text-heading ' + (terminal === 'win' ? 'text-accent' : 'text-danger'),
-        text: terminal === 'win' ? 'Victory' : 'Game over' }),
-      el('div', { class: 'flex flex-wrap gap-2' },
-        el('button', {
-          class: 'btn-primary', type: 'button', text: 'Play again',
-          onClick: () => { stopMusic(); runner.state = createRun(title); saveRunner(); paintRunner(); },
-        }),
-        el('a', { class: 'btn-secondary', href: '#/', text: 'Back to Arcade' }),
-      ),
-    );
-  } else {
-    const choiceButtons = stage.choices.map((c) => el('button', {
-      class: 'choice', type: 'button', 'data-choice': c.key,
-      onClick: (e) => {
-        if (runner.busy || runner.state.finished) return;
-        runner.busy = true;
-        // The choice is an action trigger: if the creator gave it a track,
-        // that track takes over now, inside the tap so phones allow it.
-        const key = triggerKey(title.id, runner.state.stageIndex, c.key);
-        const track = runner.music && runner.music.get(key);
-        if (track) playUrl(key, track);
-        const next = applyChoice(title, runner.state, c.key);
-        runner.busy = false;
-        afterAction(next);
-        // A slow double tap can reach a button that has already been
-        // replaced; blur it so the same key cannot fire twice.
-        try { e.currentTarget.blur(); } catch {}
-      },
-    },
-      el('span', { class: 'choice-key', text: c.key }),
-      el('span', { class: 'flex-1', text: c.text }),
-    ));
-
-    const input = el('input', {
-      class: 'field flex-1', type: 'text', id: 'custom-action',
-      placeholder: 'Type your own action', 'aria-label': 'Custom action',
-    });
-    const submit = el('button', {
-      class: 'btn-secondary shrink-0 whitespace-nowrap', type: 'button', text: 'Do it', disabled: 'disabled',
-      onClick: () => {
-        const text = input.value.trim();
-        if (!text || runner.busy) return;
-        runner.busy = true;
-        const next = applyCustom(title, runner.state, text);
-        runner.busy = false;
-        input.value = '';
-        submit.setAttribute('disabled', 'disabled');
-        afterAction(next);
-      },
-    });
-    input.addEventListener('input', () => {
-      if (input.value.trim()) submit.removeAttribute('disabled');
-      else submit.setAttribute('disabled', 'disabled');
-    });
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit.click(); });
-
-    choicesArea = el('section', { class: 'flex flex-col gap-3' },
-      el('h2', { class: 'section-label', text: 'What do you do?' }),
-      el('div', { class: 'flex flex-col gap-2' }, choiceButtons),
-      el('div', { class: 'flex flex-col gap-2' },
-        el('label', { class: 'text-small text-muted', for: 'custom-action', text: 'Custom action' }),
-        el('div', { class: 'flex gap-2' }, input, submit),
-      ),
-    );
-  }
-
-  screen.replaceChildren(...[banner, header, log, choicesArea].filter(Boolean));
-}
-
-function renderRunner(title, params) {
-  const demo = params.get('demo') === '1';
-  const fresh = demo ? demoState(title) : createRun(title);
-  const saved = demo ? null : getProgress(title.id);
-  runner = { title, state: fresh, demo, resumeBanner: null, music: new Map() };
-  // Resolve the title's tracks now, so a choice tap can start one at once.
-  const mine = runner;
-  preloadTitle(uid, title).then((m) => {
-    if (runner !== mine) return;
-    const had = mine.music.size;
-    mine.music = m;
-    if (!had && m.size) paintRunner();
-  }).catch(() => {});
-
-  const screen = el('main', { id: 'runner-screen', class: 'mx-auto flex max-w-2xl flex-col gap-6 px-4 py-8' });
-
-  // Resume prompt: a saved, unfinished run exists and the route was not
-  // asked for a demo state. Load it, then offer Resume / Start over.
-  if (saved && saved.started && !saved.finished && !demo) {
-    runner.state = saved;
-    runner.resumeBanner = saved;
-  } else {
-    runner.resumeBanner = null;
-  }
-
-  screen.dataset.titleId = title.id;
-  return screen;
-}
-
-/* ── Prelude ───────────────────────────────────────────────────────────────
- * A listing's optional prelude story, set in the Creator Studio. When a run
- * starts fresh (not a Resume, not the demo state) it rolls up the screen like
- * film credits over an empty runner; the run is painted when the roll ends or
- * the player skips. A title with no prelude starts right away, as before.
- */
-const PRELUDE_SPEED = 40; // px per second, slow enough to read along
-
-function preludeFor(titleId) {
-  const listing = findListing(listings, titleId);
-  return listing ? String(listing.prelude || '').trim() : '';
-}
-
-function renderPrelude(title, text, onDone) {
-  const still = reducedMotion.matches;
-  let finished = false;
-  let anim = null;
-
-  const paragraphs = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-  const crawl = el('div', { class: 'prelude-crawl', 'data-prelude-crawl': '' },
-    el('p', { class: 'section-label', text: 'Prelude' }),
-    el('h1', { class: 'text-title', text: title.title }),
-    paragraphs.map((p) => el('p', { class: 'whitespace-pre-line text-body text-fg', text: p })),
-  );
-  const viewport = el('div', { class: 'prelude-viewport' + (still ? ' prelude-static' : '') }, crawl);
-  const skipBtn = el('button', {
-    class: 'btn-secondary', type: 'button', 'data-prelude-skip': '',
-    text: still ? 'Start game' : 'Skip',
-    onClick: () => finish(),
-  });
-  const overlay = el('div', {
-    class: 'prelude', role: 'dialog', 'aria-modal': 'true', 'aria-label': title.title + ' prelude',
-    'data-prelude': title.id,
-  }, viewport, el('div', { class: 'prelude-bar' }, skipBtn));
-
-  function onKey(e) { if (e.key === 'Escape') finish(); }
-
-  function finish() {
-    if (finished) return;
-    finished = true;
-    window.removeEventListener('keydown', onKey);
-    if (anim) { try { anim.cancel(); } catch { /* ignore */ } }
-    // A navigation away already replaced the screen; nothing to start.
-    if (!overlay.isConnected) return;
-    overlay.remove();
-    onDone();
-  }
-
-  window.addEventListener('keydown', onKey);
-  // Start once the overlay is in the page, so the crawl can be measured.
-  requestAnimationFrame(() => {
-    if (finished) return;
-    if (!overlay.isConnected) { finish(); return; }
-    try { skipBtn.focus({ preventScroll: true }); } catch { /* ignore */ }
-    if (still || typeof crawl.animate !== 'function') return;
-    // Enter from low on the screen, not below it, so there is no empty wait.
-    const from = Math.round(viewport.clientHeight * 0.75);
-    const to = -crawl.offsetHeight;
-    anim = crawl.animate(
-      [{ transform: 'translateY(' + from + 'px)' }, { transform: 'translateY(' + to + 'px)' }],
-      { duration: Math.max(6000, ((from - to) / PRELUDE_SPEED) * 1000), easing: 'linear', fill: 'both' },
-    );
-    anim.finished.then(() => finish()).catch(() => {});
-  });
-
-  return overlay;
-}
-
-/* ── Router ────────────────────────────────────────────────────────────── */
-let drawerPanel = null;
 
 function parseHash() {
   const raw = window.location.hash.replace(/^#/, '') || '/';
@@ -702,120 +105,582 @@ function parseHash() {
   return { parts: path.split('/').filter(Boolean), params: new URLSearchParams(query) };
 }
 
-function closeDrawer() {
-  window.location.hash = '#/';
+// Takes what the server answered into the state, keeping the selection and
+// the playhead where they were when they still point at something.
+function applyStudio(loaded) {
+  studio.username = loaded.username || '';
+  studio.signedIn = !!loaded.signedIn;
+  studio.project = loaded.project;
+  studio.media = loaded.media;
+  studio.tracks = loaded.tracks;
+  studio.clips = loaded.clips;
+  studio.transcript = loaded.transcript;
+  studio.sample = !!loaded.sample;
+  studio.readOnly = !!loaded.readOnly;
+  studio.readOnlyWrite = !studio.signedIn;
+  studio.assistant = loaded.assistant || studio.assistant;
+  const length = Number(studio.project && studio.project.durationMs) || 0;
+  studio.playhead = clampMs(studio.playhead, length);
+  if (!studio.media.some((m) => m.id === studio.selection.mediaId)) {
+    studio.selection.mediaId = studio.media.length ? studio.media[0].id : null;
+  }
+  if (!studio.clips.some((c) => c.id === studio.selection.clipId)) {
+    const firstSelected = studio.clips.find((c) => c.mediaId === studio.selection.mediaId && c.trimInMs) || null;
+    studio.selection.clipId = firstSelected ? firstSelected.id : null;
+  }
 }
 
-function route() {
-  const { parts, params } = parseHash();
-  if (parts[0] === 'play') {
-    const title = findTitle(parts[1]);
-    if (!title) { app.replaceChildren(renderNotFound()); return; }
-    app.replaceChildren(renderRunner(title, params));
-    const prelude = runner.demo || runner.resumeBanner ? '' : preludeFor(title.id);
-    if (prelude) app.append(renderPrelude(title, prelude, () => paintRunner()));
-    else paintRunner();
-    return;
+async function refreshUsage() {
+  studio.usage = await readUsage(studio.assistant, window.usernode);
+}
+
+// After a reply, the meter reads what the reply carried without another
+// bridge call: the headers are the platform's own figures.
+function takeMeter(meter) {
+  if (!meter) return;
+  if (meter.spentCents != null) studio.assistant.lastSpentCents = meter.spentCents;
+  if (meter.capCents != null) studio.assistant.lastCapCents = meter.capCents;
+}
+
+/* ── Undo and redo: the last two local edits ───────────────────────────── */
+
+function snapshot() {
+  return {
+    project: Object.assign({}, studio.project),
+    tracks: studio.tracks.map((t) => Object.assign({}, t)),
+    clips: studio.clips.map((c) => Object.assign({}, c)),
+  };
+}
+
+function remember() {
+  studio.undo.push(snapshot());
+  while (studio.undo.length > 2) studio.undo.shift();
+  studio.redo = [];
+}
+
+async function restore(snap) {
+  const { project, tracks, clips } = snap;
+  const patch = {
+    aspect: project.aspect, resolution: project.resolution, durationMs: project.durationMs,
+    cameraPreset: project.cameraPreset, motionPreset: project.motionPreset,
+    motionRealism: project.motionRealism, volume: project.volume, name: project.name,
+  };
+  await write(async () => {
+    const own = await ensureOwn();
+    await saveProject(own.project.id, patch);
+    return saveTimeline(own.project.id, tracksPayload(tracks, clips));
+  });
+}
+
+/* ── Writes ────────────────────────────────────────────────────────────── */
+
+// Every write lands on the person's own project. On the sample, the first
+// write starts their own copy, and the ids below are the copy's.
+async function ensureOwn() {
+  if (studio.signedIn && studio.sample) {
+    const loaded = await startProject();
+    applyStudio(loaded);
+    return loaded;
   }
-  if (parts[0] === 'admin') {
-    // Server-side flag only: another account cannot open the studio even by
-    // typing the URL.
-    if (!studio) { app.replaceChildren(renderNotAuthorised()); return; }
-    app.replaceChildren(renderAdmin({
-      uid,
-      token,
-      liveTheme,
-      onThemeChange: (id) => { liveTheme = id; cacheTheme(id); },
-      nav: gameNav('admin'),
-      onCountChange: (n) => {
-        reloadListings();
-        const badge = document.querySelector('[data-count]');
-        if (badge) { badge.textContent = String(n); badge.dataset.count = String(n); }
-      },
-    }));
-    return;
+  return studio;
+}
+
+function tracksPayload(tracks, clips) {
+  return tracks.map((t) => ({
+    id: t.id, kind: t.kind, label: t.label, locked: !!t.locked, hidden: !!t.hidden,
+    clips: clips.filter((c) => c.trackId === t.id).map((c) => ({
+      id: c.id, mediaId: c.mediaId, label: c.label, startMs: c.startMs, endMs: c.endMs, trimInMs: c.trimInMs,
+    })),
+  }));
+}
+
+async function write(fn, okMessage) {
+  if (!studio.signedIn) { toast('Sign in to Homeroom to change the project.'); return false; }
+  studio.saving = true;
+  try {
+    const loaded = await fn();
+    if (loaded) applyStudio(loaded);
+    if (okMessage) toast(okMessage);
+    return true;
+  } catch (err) {
+    toast(apiMessage(err, 'The studio could not save that.'));
+    return false;
+  } finally {
+    studio.saving = false;
+    render();
   }
-  if (parts[0] === 'embed') {
-    const listing = findListing(listings, parts[1]);
-    if (!listing) { app.replaceChildren(renderNotFound()); return; }
-    app.replaceChildren(renderEmbed(listing, { onBack: () => closeDrawer(), nav: gameNav(null), studio }));
-    return;
-  }
-  if (parts[0] === 'title') {
-    const listing = findListing(listings, parts[1]);
-    const builtIn = findTitle(parts[1]);
-    const earned = builtIn ? markSeen(builtIn.id) : [];
-    if (earned.length) toast('Achievement unlocked: Arcade Explorer');
-    // Arcade underneath, details drawer over it.
-    const arcade = renderArcade();
-    app.replaceChildren(arcade);
-    if (listing) {
-      drawerPanel = renderDetails(listing, builtIn, closeDrawer);
-      app.append(drawerPanel);
-      const first = drawerPanel.querySelector('button, [href], input');
-      if (first) { try { first.focus({ preventScroll: true }); } catch { /* ignore */ } }
-    } else {
-      app.replaceChildren(renderNotFound());
+}
+
+let projectTimer = null;
+let projectPatch = {};
+
+// The inspector's controls write the project row, debounced so a slider drag
+// is one write. The state updates at once so the readout keeps up.
+function changeProject(patch) {
+  if (!studio.project) return;
+  if (!Object.keys(projectPatch).length) remember();
+  Object.assign(projectPatch, patch);
+  Object.assign(studio.project, patch);
+  if (patch.durationMs != null) studio.playhead = clampMs(studio.playhead, patch.durationMs);
+  clearTimeout(projectTimer);
+  projectTimer = setTimeout(async () => {
+    const pending = projectPatch;
+    projectPatch = {};
+    await write(async () => {
+      const own = await ensureOwn();
+      return saveProject(own.project.id, pending);
+    });
+  }, 600);
+}
+
+async function toggleTrack(trackId, flag) {
+  const tracks = studio.tracks.map((t) => (t.id === trackId ? Object.assign({}, t, { [flag]: !t[flag] }) : t));
+  remember();
+  await write(async () => {
+    const own = await ensureOwn();
+    const mapped = own === studio ? tracks : own.tracks.map((t, i) => Object.assign({}, t, { [flag]: tracks[i] ? tracks[i][flag] : t[flag] }));
+    return saveTimeline(own.project.id, tracksPayload(mapped, own.clips));
+  });
+}
+
+async function addPlaceholder(kindId, options) {
+  const kind = GENERATION_KINDS[kindId];
+  if (!kind) return;
+  remember();
+  const ok = await write(async () => {
+    const own = await ensureOwn();
+    const added = await addMedia({
+      projectId: own.project.id, title: placeholderTitle(kindId, options), kind: kind.mediaKind, durationMs: kind.lengthMs,
+    });
+    const lane = added.tracks.find((t) => t.kind === kind.lane) || added.tracks.find((t) => t.kind === 'clip');
+    if (!lane || !added.mediaId) return added;
+    const laneClips = added.clips.filter((c) => c.trackId === lane.id);
+    const slot = nextSlot(laneClips, studio.playhead, kind.lengthMs, added.project.durationMs);
+    if (!slot) return added;
+    const clips = added.clips.concat([{
+      id: 'new-' + Date.now(), trackId: lane.id, mediaId: added.mediaId, label: placeholderTitle(kindId, options),
+      startMs: slot.startMs, endMs: slot.endMs, trimInMs: 0,
+    }]);
+    const saved = await saveTimeline(added.project.id, tracksPayload(added.tracks, clips));
+    studio.selection.mediaId = added.mediaId;
+    return saved;
+  }, 'Placeholder added. Nothing was generated.');
+  if (ok) go('#/studio');
+}
+
+async function removeMediaRow(id) {
+  remember();
+  await write(() => removeMedia(id), 'Removed from the library.');
+}
+
+// The Text tool: a text overlay block at the playhead on the text lane.
+async function addTextBlock() {
+  const lane = studio.tracks.find((t) => t.kind === 'text');
+  if (!lane) { toast('This project has no text lane.'); return; }
+  const words = window.prompt('The words the text overlay shows');
+  if (!words || !words.trim()) return;
+  remember();
+  await write(async () => {
+    const own = await ensureOwn();
+    const ownLane = own.tracks.find((t) => t.kind === 'text') || lane;
+    const slot = nextSlot(own.clips.filter((c) => c.trackId === ownLane.id), studio.playhead, 6000, own.project.durationMs);
+    if (!slot) throw new ApiError(400, 'There is no room left on the text lane.');
+    const clips = own.clips.concat([{
+      id: 'new-' + Date.now(), trackId: ownLane.id, mediaId: null, label: words.trim().slice(0, 160),
+      startMs: slot.startMs, endMs: slot.endMs, trimInMs: 0,
+    }]);
+    return saveTimeline(own.project.id, tracksPayload(own.tracks, clips));
+  }, 'Text block added.');
+}
+
+async function attachPicture(file) {
+  const id = studio.selection.mediaId;
+  if (!id) { toast('Select a clip in the library first.'); return; }
+  let art = null;
+  try { art = await uploadArt(file); } catch { art = null; }
+  if (!art) { toast('Platform storage did not take the picture. The drawn plate stays.'); return; }
+  remember();
+  await write(async () => {
+    const own = await ensureOwn();
+    const target = own === studio ? id : (own.media[studio.media.findIndex((m) => m.id === id)] || {}).id;
+    if (!target) throw new ApiError(404, 'That clip is not in your library.');
+    studio.selection.mediaId = target;
+    return saveMediaArt(target, art);
+  }, 'Picture saved to the clip.');
+}
+
+/* ── The assistant ─────────────────────────────────────────────────────── */
+
+async function sendChat() {
+  const text = (studio.chat.draft || '').trim();
+  if (!text || studio.chat.busy) return;
+  if (!studio.signedIn) { studio.chat.note = MESSAGES.guest; render(); return; }
+  if (studio.usage && studio.usage.state === 'unavailable') return;
+  studio.chat.busy = true;
+  studio.chat.note = '';
+  render();
+  const projectId = studio.project ? studio.project.id : null;
+  const history = historyFor(studio.transcript);
+  const bridge = window.usernode;
+  const result = await sendMessage(text, history, {
+    post: (t, hist) => askAssistant(projectId, t, hist).then((body) => { takeMeter(body && body._meter); return body; })
+      .catch((err) => { if (err && err.meter) takeMeter(err.meter); throw err; }),
+    requestAccess: bridge && typeof bridge.requestLlmAccess === 'function' ? () => bridge.requestLlmAccess() : null,
+  });
+  studio.chat.busy = false;
+  if (result.state === 'reply') {
+    studio.chat.draft = '';
+    studio.chat.note = '';
+    takeMeter(result.reply);
+    try { applyStudio(await loadStudio()); } catch { /* the reply is shown from the reload; a failed reload keeps the old transcript */ }
+    await refreshUsage();
+  } else {
+    // The message stays in the prompt bar; the widget prints the platform's
+    // own state in the app's words and never retries a cap on its own.
+    studio.chat.note = result.text || MESSAGES.failed;
+    if (result.state === 'app_cap' || result.state === 'budget') {
+      await refreshUsage();
+      if (studio.usage && studio.usage.state === 'reading' && studio.usage.cap > 0) {
+        studio.usage = Object.assign({}, studio.usage, { pct: 100, warn: true });
+      }
+    } else if (result.state === 'declined') {
+      await refreshUsage();
     }
+  }
+  render();
+}
+
+function quickAction(kindId) {
+  if (kindId === 'text') {
+    if (!studio.chat.draft) studio.chat.draft = 'Draft a title and a two-line description for this project.';
+    render();
+    const prompt = document.querySelector('[data-assistant-prompt]');
+    if (prompt && !prompt.disabled) prompt.focus();
     return;
   }
-  app.replaceChildren(renderArcade());
+  go('#/studio/generate/' + kindId);
+}
+
+/* ── Playback, scrubbing and trimming ──────────────────────────────────── */
+
+let playTimer = null;
+let playMark = 0;
+
+// Only the playhead's own elements move during play: a full re-render ten
+// times a second would steal focus from every control.
+function paintPlayhead() {
+  const length = Number(studio.project && studio.project.durationMs) || 1;
+  const pct = (clampMs(studio.playhead, length) / length) * 100;
+  for (const node of document.querySelectorAll('[data-playhead]')) node.style.left = pct + '%';
+  const pair = timecodePair(studio.playhead, length);
+  for (const node of document.querySelectorAll('[data-timecode], [data-timeline-readout]')) node.textContent = pair;
+  const scrub = document.querySelector('[data-scrub]');
+  if (scrub && document.activeElement !== scrub) scrub.value = String(clampMs(studio.playhead, length));
+}
+
+function stopPlay() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  studio.playing = false;
+}
+
+function togglePlay() {
+  if (studio.playing) { stopPlay(); render(); return; }
+  const length = Number(studio.project && studio.project.durationMs) || 0;
+  if (!length) return;
+  if (studio.playhead >= length) studio.playhead = 0;
+  studio.playing = true;
+  playMark = performance.now();
+  playTimer = setInterval(() => {
+    const now = performance.now();
+    studio.playhead = movePlayhead(length, studio.playhead + (now - playMark));
+    playMark = now;
+    if (studio.playhead >= length) {
+      if (studio.loop) studio.playhead = 0;
+      else { stopPlay(); render(); return; }
+    }
+    paintPlayhead();
+  }, 100);
+  render();
+}
+
+function seek(ms) {
+  const length = Number(studio.project && studio.project.durationMs) || 0;
+  studio.playhead = movePlayhead(length, ms);
+  paintPlayhead();
+}
+
+function msAt(event, lane) {
+  const rect = lane.getBoundingClientRect();
+  const length = Number(studio.project && studio.project.durationMs) || 0;
+  const x = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+  return rect.width ? Math.round((x / rect.width) * length) : 0;
+}
+
+// The playhead is one element and a pointer: down sets it, move drags it,
+// up ends the drag. No library.
+function scrubStart(event, lane) {
+  if (event.button != null && event.button !== 0) return;
+  event.preventDefault();
+  stopPlay();
+  seek(msAt(event, lane));
+  const move = (e) => seek(msAt(e, lane));
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    render();
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+
+// A trim handle is the same drag with a clamp, then one timeline write.
+function trimStart(event, clip, side, lane) {
+  event.preventDefault();
+  stopPlay();
+  const node = lane.querySelector('[data-clip="' + clip.id + '"]');
+  const length = Number(studio.project && studio.project.durationMs) || 1;
+  let draft = Object.assign({}, clip);
+  const move = (e) => {
+    const at = msAt(e, lane);
+    if (side === 'in') draft = withTrim(clip, at - clip.startMs, length);
+    else draft = withTrim(Object.assign({}, clip, { endMs: Math.max(clip.startMs + 250, at) }), clip.trimInMs, length);
+    if (node) {
+      node.style.width = Math.max(0.5, ((draft.endMs - draft.startMs) / length) * 100) + '%';
+      const trimmed = node.querySelector('.st-clip-trimmed');
+      if (trimmed) trimmed.style.width = Math.min(100, (draft.trimInMs / Math.max(1, draft.endMs - draft.startMs)) * 100) + '%';
+    }
+  };
+  const up = async () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    if (draft.trimInMs === clip.trimInMs && draft.endMs === clip.endMs) { render(); return; }
+    remember();
+    const clips = studio.clips.map((c) => (c.id === clip.id ? draft : c));
+    await write(async () => {
+      const own = await ensureOwn();
+      return saveTimeline(own.project.id, tracksPayload(own === studio ? studio.tracks : own.tracks, own === studio ? clips : own.clips));
+    });
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+
+/* ── The handlers the studio's pieces call ─────────────────────────────── */
+
+const handlers = {
+  go,
+  notice: toast,
+  selectMedia: (id) => {
+    studio.selection.mediaId = id;
+    const clip = studio.clips.find((c) => c.mediaId === id);
+    studio.selection.clipId = clip ? clip.id : null;
+    if (clip) { stopPlay(); studio.playhead = clip.startMs; }
+    render();
+  },
+  selectClip: (clipId, mediaId) => {
+    studio.selection.clipId = clipId;
+    if (mediaId) studio.selection.mediaId = mediaId;
+    render();
+  },
+  setQuery: (q) => {
+    studio.query = q;
+    const root = document.querySelector('[data-library]');
+    // The list re-renders in place so the search box keeps its focus.
+    if (root) {
+      const fresh = renderStudioLibrary();
+      root.replaceWith(fresh);
+      const input = fresh.querySelector('[data-library-search]');
+      if (input) { input.focus(); input.setSelectionRange(q.length, q.length); }
+    }
+  },
+  useTool: (tool) => {
+    studio.tool = tool;
+    if (tool === 'text') { addTextBlock(); studio.tool = 'select'; return; }
+    if (tool === 'image') { go('#/studio/generate/images'); return; }
+    if (tool === 'effects') { go('#/studio/inspector/audio'); return; }
+    render();
+  },
+  togglePlay,
+  toggleLoop: () => { studio.loop = !studio.loop; render(); },
+  seek,
+  scrubStart,
+  trimStart,
+  changeProject,
+  toggleTrack,
+  setVoice: (patch) => { Object.assign(studio.voice, patch); },
+  setInstructions: (v) => { studio.instructions = v; },
+  addPlaceholder,
+  removeMedia: removeMediaRow,
+  attach: attachPicture,
+  sendMessage: sendChat,
+  setDraft: (v) => { studio.chat.draft = v; },
+  quick: quickAction,
+  undo: async () => {
+    const snap = studio.undo.pop();
+    if (!snap) return;
+    studio.redo.push(snapshot());
+    await restore(snap);
+  },
+  redo: async () => {
+    const snap = studio.redo.pop();
+    if (!snap) return;
+    studio.undo.push(snapshot());
+    await restore(snap);
+  },
+};
+
+function renderStudioLibrary() {
+  // The library alone, for the search box's in-place update.
+  const whole = renderStudio(studio, handlers);
+  return whole.querySelector('[data-library]');
+}
+
+/* ── The other screens ─────────────────────────────────────────────────── */
+
+function renderAbout() {
+  return el('main', { class: 'st-root', 'data-about': '' },
+    el('section', { class: 'rig-window st-glass' },
+      el('div', { class: 'rig-window-bar' }, el('strong', { class: 'text-body', text: APP_NAME })),
+      el('div', { class: 'rig-window-body' },
+        el('h1', { class: 'text-title', text: 'A dark studio for AI media work' }),
+        el('p', { class: 'text-body text-muted', text: 'One project, built from clips, text, transitions and audio, with an inspector, a multi-track timeline and an assistant.' }),
+        el('div', { class: 'rig-readout' },
+          [
+            'REAL: the project, its media, its tracks and clips, and the assistant chat through the platform\'s text AI.',
+            'SIMULATED: image, avatar, video and sound generation, the collaborator avatars, the preview plate and the export.',
+            SIM_LINE,
+          ].map((line) => el('p', { class: 'rig-print', text: line })),
+        ),
+        el('button', { class: 'btn-primary', type: 'button', text: 'Open the studio', onclick: () => go('#/studio') }),
+      ),
+    ),
+  );
+}
+
+function renderUnknown() {
+  return el('main', { class: 'st-root', 'data-unknown': '' },
+    el('section', { class: 'rig-window st-glass' },
+      el('div', { class: 'rig-window-bar' }, el('strong', { class: 'text-body', text: APP_NAME })),
+      el('div', { class: 'rig-window-body' },
+        el('h2', { class: 'text-heading', text: 'That is not a screen in this studio' }),
+        el('p', { class: 'text-body text-muted', text: 'The address you followed does not match a screen here. The handheld arcade this app used to be is gone.' }),
+        el('button', { class: 'btn-primary', type: 'button', 'data-back-to-studio': '', text: 'Back to the studio', onclick: () => go('#/studio') }),
+      ),
+    ),
+  );
+}
+
+function renderFailure() {
+  const err = studio.failure;
+  const message = err instanceof ApiError && err.status === 401
+    ? 'The studio answers only inside Homeroom, because it needs to know whose project it is.'
+    : 'The studio could not read your project. It is still there.';
+  return el('main', { class: 'st-root' },
+    el('section', { class: 'rig-window st-glass' },
+      el('div', { class: 'rig-window-bar' }, el('strong', { class: 'text-body', text: APP_NAME })),
+      el('div', { class: 'rig-window-body' },
+        el('div', { class: 'state-error' },
+          el('h2', { class: 'text-heading', text: 'The studio did not answer' }),
+          el('p', { class: 'text-body text-muted', text: message }),
+          el('button', {
+            class: 'btn-primary', type: 'button', text: 'Try again',
+            onclick: async () => { await loadIntoState(); render(); },
+          }),
+        ),
+      ),
+    ),
+  );
+}
+
+function renderLoading() {
+  return el('main', { class: 'st-root' },
+    el('section', { class: 'rig-window st-glass' },
+      el('div', { class: 'rig-window-bar' }, el('strong', { class: 'text-body', text: APP_NAME })),
+      el('div', { class: 'rig-window-body' },
+        el('div', { class: 'skeleton h-6 w-40' }),
+        el('div', { class: 'skeleton h-11 w-full' }),
+        el('div', { class: 'skeleton h-40 w-full' }),
+      ),
+    ),
+  );
+}
+
+/* ── Routing ───────────────────────────────────────────────────────────── */
+
+function render() {
+  if (!studio.ready) { app.replaceChildren(renderLoading()); return; }
+  if (studio.failure) { app.replaceChildren(renderFailure()); return; }
+
+  const { parts, params } = parseHash();
+  const first = parts[0] || '';
+  if (first === 'about') { app.replaceChildren(renderAbout()); return; }
+  if (first && first !== 'studio') { app.replaceChildren(renderUnknown()); return; }
+
+  const second = parts[1] || '';
+  const third = parts[2] || '';
+  studio.sheet = { kind: null, options: null };
+  let focus = null;
+  if (second === 'library') {
+    if (params.has('q')) studio.query = params.get('q') || '';
+    focus = '[data-library]';
+  } else if (second === 'clips' && third) {
+    if (studio.media.some((m) => m.id === third)) selectSilently(third);
+    focus = '[data-stage]';
+  } else if (second === 'inspector') {
+    studio.tab = TABS.some((t) => t.id === third) ? third : 'video';
+    focus = '[data-inspector]';
+  } else if (second === 'timeline') {
+    focus = '[data-timeline]';
+  } else if (second === 'assistant') {
+    focus = '[data-assistant]';
+  } else if (second === 'export') {
+    studio.sheet = { kind: 'export', options: null };
+  } else if (second === 'generate' && GENERATION_KINDS[third]) {
+    const options = {};
+    for (const key of ['sfx', 'voice', 'tone', 'language']) if (params.has(key)) options[key] = params.get(key);
+    studio.sheet = { kind: third, options };
+  } else if (second) {
+    app.replaceChildren(renderUnknown());
+    return;
+  }
+
+  app.replaceChildren(renderStudio(studio, handlers));
+  if (focus) {
+    const node = document.querySelector(focus);
+    if (node && typeof node.scrollIntoView === 'function') node.scrollIntoView({ block: 'start' });
+  }
+}
+
+function selectSilently(id) {
+  studio.selection.mediaId = id;
+  const clip = studio.clips.find((c) => c.mediaId === id);
+  studio.selection.clipId = clip ? clip.id : studio.selection.clipId;
+  if (clip && !studio.playing) studio.playhead = clip.startMs;
 }
 
 /* ── Boot ──────────────────────────────────────────────────────────────── */
-async function loadIdentity() {
-  // Only ask when the platform handed us a token. Standalone and offline
-  // loads have none, and a tokenless request would just 401 into the
-  // console; there the store stays in the shared 'anon' namespace.
-  if (token) {
-    try {
-      const res = await fetch('/api/me', { headers: { 'x-usernode-token': token } });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const me = await res.json();
-      if (me && me.id != null) uid = String(me.id);
-      studio = !!(me && me.studio);
-      if (me && isTheme(me.theme)) {
-        liveTheme = me.theme;
-        cacheTheme(liveTheme);
-        applyTheme(liveTheme);
-      }
-    } catch {
-      uid = 'anon';
-      studio = false;
-    }
-  }
+
+async function loadIntoState() {
   try {
-    const probe = '__qv_probe__';
-    window.localStorage.setItem(probe, '1');
-    window.localStorage.removeItem(probe);
-  } catch {
-    storageOk = false;
-    if (!warnedAboutStorage) {
-      warnedAboutStorage = true;
-      setTimeout(() => toast('Progress will not be saved in this browser.'), 400);
-    }
+    applyStudio(await loadStudio());
+    studio.uploads = uploadsAvailable();
+    // The first selected clip is the one with a trim, so the trim handles have
+    // something to show; the playhead starts where it starts.
+    const trimmed = studio.clips.find((c) => c.trimInMs && c.mediaId);
+    if (trimmed) { studio.selection.clipId = trimmed.id; studio.selection.mediaId = trimmed.mediaId; studio.playhead = trimmed.startMs; }
+    await refreshUsage();
+    studio.failure = null;
+  } catch (err) {
+    studio.failure = err;
+  } finally {
+    studio.ready = true;
   }
 }
 
-window.addEventListener('hashchange', (e) => {
-  // A new navigation clears an open runner.
-  if (runner && !window.location.hash.startsWith('#/play/')) runner = null;
-  // Music belongs to one run (or one studio preview); leaving the screen
-  // ends it.
-  stopMusic();
-  if (drawerPanel && !window.location.hash.startsWith('#/title/')) drawerPanel = null;
-  // A theme picked in the Creator Studio but not applied is a preview for
-  // that screen only; anywhere else shows the live theme.
-  applyTheme(liveTheme);
-  route();
-  if (e.type === 'hashchange') window.scrollTo(0, 0);
+window.addEventListener('hashchange', () => {
+  render();
+  window.scrollTo(0, 0);
 });
 
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && drawerPanel) closeDrawer();
-});
-
-loadIdentity().then(() => {
-  reloadListings();
-  route();
-});
+render();
+loadIntoState().then(render);

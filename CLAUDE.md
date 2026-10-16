@@ -1,4 +1,4 @@
-# QuestVerse — notes for Claude Code
+# Pixmotion AI: notes for Claude Code
 
 This app runs on **Homeroom**. If you're Claude Code
 editing this repo, read the platform conventions before making
@@ -7,15 +7,15 @@ changes:
 **Platform conventions (authoritative, always current):**
 https://app.onhomeroom.com/claude.md
 
-Fetch that URL at the start of each session — it's the single source
+Fetch that URL at the start of each session; it is the single source
 of truth for platform-wide behavior (auth model, `USERNODE_ENV`,
-public/private tables, "don't `git push`", etc.). The hosted copy is
-updated in place when platform rules change, so fetching it gives you
-today's rules, not a stale snapshot.
+public/private tables, the LLM proxy, "don't `git push`", etc.). The
+hosted copy is updated in place when platform rules change, so fetching
+it gives you today's rules, not a stale snapshot.
 
 When running inside Homeroom's dev-chat, those same conventions are
 already injected into your system prompt, so the fetch is a no-op in
-that path — but it's the right reflex when someone runs Claude Code
+that path. It is the right reflex when someone runs Claude Code
 against this repo locally or from another harness.
 
 ## Connector permission prompts
@@ -23,22 +23,17 @@ against this repo locally or from another harness.
 This repo ships `.claude/settings.json`, which allows the **read-only**
 Homeroom connector calls (`mcp__homeroom__get_*`,
 `…__list_*`, `…__whoami`) so they stop prompting one at a time. Everything
-that acts — filing a request, opening or advancing a proposal — still asks.
+that acts (filing a request, opening or advancing a proposal) still asks.
 Claude Code applies those rules only after you accept the
 workspace trust dialog, which lists them for review. See `.claude/README.md`
-for the whole story, including what to do if you are still being prompted
-(usually: your connector is registered under a different name than the rules
-assume).
+for the whole story.
 
 ## Check that this checkout is current
 
 You may be working in a fork of this app whose `main` is behind the app's
 canonical repository, and nothing in the checkout says so: `git fetch origin`
-compares the fork with itself. This matters before you **read** code to answer
-a question about how the app behaves now, not only before you edit it.
-
-The canonical repository is named in `.claude/homeroom-canonical-repo`. Check against
-it, not against `origin`:
+compares the fork with itself. The canonical repository is named in
+`.claude/homeroom-canonical-repo`. Check against it, not against `origin`:
 
 ```sh
 git fetch "$(cat .claude/homeroom-canonical-repo)" main
@@ -46,157 +41,167 @@ git merge-base --is-ancestor FETCH_HEAD HEAD && echo current || echo behind
 ```
 
 `behind` means this checkout does not contain the canonical `main`. To answer
-a question, read the canonical code instead (`git show FETCH_HEAD:<path>`,
-`git grep <pattern> FETCH_HEAD`). To change code, start from the exact base
-commit your Homeroom work order gives, and never merge or rebase onto the
-canonical `main` yourself: which commit a change is diffed against decides
-what the group votes on. With the Homeroom connector, `get_checkout_status`
-answers the same question.
+a question, read the canonical code instead (`git show FETCH_HEAD:<path>`).
+To change code, start from the exact base commit your Homeroom work order
+gives, and never merge or rebase onto the canonical `main` yourself. A
+session-start hook (`.claude/hooks/homeroom-freshness.sh`) runs this check
+for you; it is silent offline, so its silence is not proof the checkout is
+current. Inside Homeroom's dev-chat the platform fixes the base commit.
 
-A session-start hook (`.claude/hooks/homeroom-freshness.sh`, see `.claude/README.md`) runs
-this check for you and tells you when you are behind. It is silent offline, so
-its silence is not proof the checkout is current. Inside Homeroom's dev-chat
-the platform fixes the base commit, and none of this applies.
+## Scaffolding that must stay
 
-## Starter template
+Two pieces of `public/index.html` are platform infrastructure, not content:
 
-The screen this app currently ships — the hero, the "What's already
-working" card, and the Press! example (the demo markup in
-`public/index.html`, the `/api/press` and `/api/leaderboard` routes, and
-the `presses` table bootstrap in `server.js`) — is placeholder content
-from the Homeroom starter template, not product intent.
+- the `usernode-dev-console@1` forwarder `<script>`, and
+- the bridge `<script>` and the theme `<script>` right after it.
 
-When the user asks for their first real feature, REPLACE the template
-screen rather than building alongside it:
-
-- remove the `usernode-starter-notice@1` block in `public/index.html`
-  (both sentinel comments and everything between them),
-- remove or repurpose the "Try the example" card, its demo endpoints and
-  the `presses` table as appropriate,
-- rewrite `README.md` to describe the actual app.
-
-Keep the `usernode-dev-console@1` forwarder `<script>` when rewriting the
-HTML — that block is platform infrastructure, not template content. So is
-the bridge `<script>`. The design kit is not placeholder either: build the
-real app with it, and fill in "## Design" below.
-
-The screen has a light and a dark look and follows the viewer's Homeroom
-theme, switching live when they change it: the theme `<script>` right after
-the bridge tag sets a `dark` class on `<html>`. Keep that script, and give
-everything you build both looks (the design kit's colour tokens carry both), unless one
-fixed look is the point of this app, like a game's own scene; then say so
-under "## Design" below. Unless a request asks for one, add
-no theme picker: the viewer's Homeroom setting is the control. "The
-platform's light/dark theme inside the app frame" in the platform
-conventions has the details.
-
-If a rule below this line conflicts with the hosted conventions, the
-hosted conventions win. This file is **app-specific** — write down
-things about *this* app that belong in the repo: product intent,
-data-model quirks, style preferences, opt-in policies (e.g. which
-tables you've marked private), etc.
+The handheld arcade this app used to be (GameWatch, and RetroRig before it)
+is gone. Do not look for it and do not reintroduce it: its screens, its
+segment art, its eight titles and its eight tables were all retired when the
+studio replaced it, and a retired address renders the studio's own not-here
+state.
 
 ---
 
-## About QuestVerse
+## About Pixmotion AI
 
-Your Gateway to Web3 Text-Based Adventures & Arcade Games.
+A dark **AI media editor**, laid out like a professional video editor: a
+top bar (Back, a breadcrumb, Undo and Redo, the tool row, the collaborator
+avatars, the **AI usage meter** and **Export**), a left **Project media**
+library with a search box, a centre **Preview** player with a scrub bar and a
+`01:38/01:40` timecode, a right **Inspector** of four tabs (**Video**,
+**Animation**, **Tracking**, **Audio & FX**), a bottom-right **assistant
+widget**, and a full-width **multi-track timeline** (text, clips,
+transitions, audio) with a playhead and trim handles.
 
-QuestVerse is a browsable arcade of text-adventure titles you play in the
-app. Five launch titles ship as committed static data (`public/catalog.js`),
-played by a pure, deterministic engine (`public/engine.js`) through a
-built-in runner. A Creator Studio tab (`public/admin.js`) lets someone
-publish, edit, preview and remove listings on top of that catalog. The only
-server state is the live seasonal theme (below); progress, achievements and
-the Creator Studio's listings live in the browser (localStorage, namespaced
-per signed-in person).
+The point of the app is the honest boundary. The platform has no image,
+video or audio model behind its AI proxy, no credit balance and no way to
+encode a file, so **everything of that kind is simulated and says so on
+screen**. The one real generation is the assistant chat, which answers
+through the platform's own text AI under the reader's own consent grant,
+and the one real money figure is the platform's own daily spend and cap,
+which the app only reads.
 
 ## Design
 
-This app's look. The first real version fills in the blanks; every later
-change follows it, and updates it when a request changes the look on purpose.
+This app's look. Every change follows it, and updates it when a request
+changes the look on purpose.
 
-- **Palette:** accent: neon violet; second: signal cyan (used for the
-  terminal-style state readout); danger: alarm magenta (game over and
-  destructive actions); neutrals: deep indigo-blacks and lilac-greys.
-- **Signature element:** the bracketed terminal state block, mirroring
-  each title's own prompt, in the signal cyan.
+- **Palette:** a two-tone charcoal ground (`--ground` #0D0F12, `--surface`,
+  `--raised`), translucent glass panels (`.st-glass`), a **neon purple**
+  `--accent` (#8B5CF6) for the one primary action (**Export**, **Add to
+  project as a placeholder**), the active tab underline, the scrub fill and
+  the playhead; **magenta** `--amber` (#EC4899) for the simulation lamp
+  `.rig-sim`, the collaborator chips, the trim handle and the AI meter once it
+  is at 90% of its cap; **indigo** `--signal` for everything the studio
+  PRINTS (the readout lines, the AI meter's figure and bar, the **Platform
+  AI** tag, the waveform, the ruler ticks); `--focus` magenta for the
+  keyboard ring; alarm red for a destructive action.
+- **Signature element:** the readout block (`.rig-readout`) of monospaced
+  `.rig-print` lines under the studio, and the timecode printed in the same
+  voice.
 - **Type scale:** `text-title`, `text-heading`, `text-body`, `text-small`
-  (change their sizes in `tailwind.config.js` if you must, not their number).
-- **One fixed look:** DARK. QuestVerse is drawn as its own scene, a game,
-  which is the documented exception to the two-look rule. `:root` and
-  `.dark` carry the same token values in `styles/tailwind-input.css`, so
-  the app renders identically in Homeroom's light and dark themes. Do not
-  "fix" this by adding a light look.
-- **Seasonal themes:** Neon (the default, the palette above), Halloween,
-  Winter Lights and Lunar New Year. Each re-tints the neutrals, the accent
-  and the signal, and keeps the alarm magenta, the single dark look and the
-  4.5:1 rule. Neon must look exactly as it did before themes existed.
+  (sizes in `tailwind.config.js`).
+- **One fixed look:** DARK. The studio is drawn as its own console, which is
+  the documented exception to the two-look rule. `:root` and `.dark` carry
+  the same token values in `styles/tailwind-input.css`, so the app renders
+  identically in Homeroom's light and dark themes. Do not "fix" this by
+  adding a light look.
+- **The glassmorphism is one class.** `.st-glass` is a low-alpha surface
+  with a blur and a lit rim, applied to the top bar, the panels, the
+  timeline and the assistant widget, and nowhere else.
+- **Every simulated surface is labelled.** The lamp `.rig-sim` (the word
+  **Simulated**) sits on the library, the preview, the timeline, the
+  collaborator avatars, the three simulated quick actions, every generation
+  panel and the export panel. The one real action carries `.st-real`
+  (**Platform AI**) instead. This is a content rule, not decoration: a
+  viewer must never mistake a drawn plate or a placeholder for a generated
+  thing.
 
-The kit is in `styles/tailwind-input.css`: colour tokens with a light and
-a dark value (named in `tailwind.config.js`), and a few components
-(`btn-primary`, `btn-secondary`, `field`, `list` and `list-row`,
-`card`, `section-label`, `skeleton`, `state-empty`, `state-error`).
-Re-theme by changing the token values there, keeping every text pair at
-4.5:1 or more in both looks.
+The kit is in `styles/tailwind-input.css`: colour tokens (named in
+`tailwind.config.js`), the components (`btn-primary`, `btn-secondary`,
+`field`, `list` and `list-row`, `card`, `section-label`, the load states),
+the pieces kept from the handheld (`.rig-window`, `.rig-readout`,
+`.rig-print`, `.rig-sim`, `.rig-sheet`, `.toast`) and the studio's own
+(`.st-glass`, `.st-topbar`, `.st-meter`, `.st-lib-*`, `.st-stage*`,
+`.st-scrub`, `.st-tabs`, `.st-group`, `.st-slider`, `.st-select`,
+`.st-assist*`, `.st-track`, `.st-ruler`, `.st-lane*`, `.st-clip*`,
+`.st-wave`, `.st-playhead`).
 
-- Colour comes only from the tokens (`bg-ground`, `bg-surface`,
-  `text-fg`, `text-muted`, `border-line`, `bg-accent` with
-  `text-on-accent`, ...): never a raw hex value or a stock palette class.
-- Tap targets are at least 44 px; the buttons and fields already are.
-- Every screen that loads data has honest loading, empty and error states.
-  Never show the empty state while loading or after a failure; an error says
-  what failed, what still works, and offers Retry.
-- Seed obviously fake staging demo data so the populated screen can be seen
+- Colour comes only from the tokens, never a raw hex value or a stock palette
+  class.
+- Tap targets are at least 44 px; the buttons, fields, tabs and tool chips
+  already are.
+- A screen that loads data has honest states (skeleton, empty, error with a
+  Retry).
+- Seed obviously fake staging data so the populated screens can be seen
   ("Staging mock data" in the platform conventions).
-- No cards in cards, no uppercase eyebrows, no emoji as icons.
 
 ## App-specific conventions
 
-- Titles are committed static data in `public/catalog.js`; there is no
-  database table and nothing to seed. A new title is a new entry there,
-  not a migration.
-- The Creator Studio (`public/admin.js`) stores its edits in
-  `localStorage` at `qv1:<userId>:listings` as `{ v, overrides, deleted }`.
-  Stored listings are remapped onto the static catalog by id: an override
-  wins, and removing a built-in is a tombstone (not a deletion) so it can
-  be restored. Do not add a table for listings; the browser is the store.
-- The Creator Studio is locked to the `STUDIO_USERNAMES` allowlist in
-  `server.js` (`scraido2`, plus the platform's `usernode-capture` and
-  `usernode-capture-admin` service identities, which sign the proposal
-  checks). The nav tab and the `#/admin` route are hidden for everyone else,
-  who see a "Not authorised" screen if they reach the URL, and `GET /api/me`
-  reports the `studio` flag the client reads. The decision is authorised from
-  the verified iframe token's `req.user.username`, never from a
-  client-supplied value. Add a person by editing that set.
-- Background music (`public/music.js`): the Creator Studio attaches one
-  .mp3 or .aac track to a choice, keyed `<titleId>:<stageIndex>:<choiceKey>`.
-  Picking that choice in the runner starts its track looping and replaces the
-  current one; a choice with no track leaves the music alone. Leaving the
-  runner, Restart and Play again stop it. The index lives at
-  `qv1:<userId>:music`. A track is offered to `usernode.uploadFile` first, but
-  platform storage only accepts images today, so in practice the bytes are
-  kept in this browser's IndexedDB (`questverse-music`), like the listings.
-  Playback starts inside the choice's tap handler from a URL resolved when the
-  runner opened, because phones only allow audio from a gesture.
-- A listing's `embedUrl` decides how it opens: `internal:<title-id>` runs
-  the built-in runner, an `https` URL is embedded in a sandboxed frame.
-- The engine in `public/engine.js` is pure and deterministic (no DOM, no
-  storage, no network, no randomness), so a run is reproducible. Keep it
-  that way; the runner and any future unit suite both depend on it.
-- Progress and achievements live in `localStorage`, keyed
-  `qv1:<userId>:...`. An offline load carries no token, so the store falls
-  back to a shared `anon` namespace rather than deleting real data.
-- The seasonal theme is one global setting, the row `key = 'theme'` in the
-  public `qv_settings` table, read by every client from `GET /api/me`
-  (`theme`) and written only by `PUT /api/theme`, gated by the same
-  `STUDIO_USERNAMES` allowlist. A theme is a set of token overrides under
-  `html[data-theme="<id>"]` in `styles/tailwind-input.css`; Neon sets no
-  attribute. A new theme is a block there, an entry in `public/themes.js`
-  and an id in `THEME_IDS` in `server.js`. Picking a theme in the studio
-  previews it on that screen only until Apply theme. There is no automatic,
-  date-based switching yet; if one is added, read the date through
-  `usernode.now()` / `req.now` ("Time-dependent features").
-- Content: every title is suspense, evasion and puzzles. Items are survival
-  utility used as wards and decoys, never weapons, and there is no combat,
-  gore or gambling. User-facing copy avoids em dashes.
+- **One job per file.** `public/timeline.js` is the pure timeline model
+  (lanes, the printed timecode, the clamps) and knows no DOM and no clock.
+  `public/generate.js` is the simulation catalogue (the presets, the banks,
+  the labelled result lines) with no price list anywhere in it.
+  `public/assistant.js` is the one place that talks to the text AI and the
+  bridge's grant functions, with every platform sentence as a constant.
+  `public/studio.js` draws the pieces from the state and the handlers and
+  keeps no state. `public/app.js` owns the state, the router and the
+  handlers. `public/server-api.js` is the client API. `lib/llm-proxy.js` is
+  the server's one path to the proxy, kept apart so a test can drive it.
+- **The simulation has to be visible, not merely true.** Generate Images,
+  Generate Avatar, Generate Video, an SFX or voice selection and Export open a
+  labelled panel that names the request, states that nothing was produced,
+  quotes **no price**, and offers **Add to project as a placeholder**. The
+  placeholder row and its timeline block are labelled from data
+  (`simulated`), not from a class name someone can forget. There is no
+  credit price table and no Top Up anywhere: the request's AI-credit list is
+  invented and is not built.
+- **The assistant is the one real generation, and its absence is a normal
+  state.** `POST /api/assistant` forwards to
+  `USERNODE_LLM_PROXY_URL/v1/messages` with the app token and the caller's
+  own forwarded `x-usernode-token`. `LLM_ENABLED = !!USERNODE_LLM_PROXY_TOKEN`;
+  staging carries no token by the platform's design, so there the route
+  answers `503 assistant_unavailable` without calling anything and the widget
+  and the meter print **AI assistant unavailable in this environment**.
+  Nothing is keyed on `IS_STAGING`. The system prompt (`ASSISTANT_SYSTEM`)
+  tells the model to decline sexual, violent, weapon, gambling and loot-box
+  topics with one neutral sentence, and the widget's copy says so.
+- **Grant, caps and the meter.** On the proxy's `403 grant_required` the
+  client calls `usernode.requestLlmAccess()` and retries the same message
+  once if granted; on `429 app_cap_exceeded` and `429 budget_exceeded` it
+  prints the platform's own words and never retries. The top bar's meter
+  reads `usernode.getLlmUsage()` first and the proxy's
+  `x-usernode-llm-spent-cents` / `x-usernode-llm-cap-cents` headers after
+  every reply; the app keeps no token-price table. **Manage AI permissions in
+  the platform's Settings** is the note under both. `dapp.json` declares the
+  `llm` block (purpose and a modest suggested cap); the proxy's two
+  variables are reserved and are never declared as secrets. No API key,
+  ever.
+- **The studio's data is five public tables**, keyed by the platform user
+  id and read or written only through `server.js`: `rr_projects` (one
+  project; `sample = TRUE` marks the one shown read-only to a person with
+  none, which only the staging seed writes), `rr_media`, `rr_tracks`,
+  `rr_clips` and `rr_assistant` (one turn, with the meter headers the reply
+  carried). A write always lands on the writer's own project; a person with
+  none gets one on their first write, a copy of the sample when there is one.
+  Nothing is kept in the browser.
+- **Art travels through platform storage.** A clip's picture goes up through
+  `usernode.uploadFile()` on the bridge and only the returned `{url, fileId}`
+  pair is persisted, never image bytes in Postgres. Platform files are
+  immutable, so a replace uploads a new file. Where storage is not reachable
+  the attach control is disabled and the screen says so.
+- **The timecode is one reading.** `formatTimecode` in `public/timeline.js`
+  is the only place a time is printed, so the scrub readout, the ruler and
+  the timeline's readout cannot drift. The playhead is one number clamped to
+  `duration_ms`, moved by a pointer on one element; no drag library.
+- **The collaborator avatars are a labelled simulation.** The app reads no
+  member list, so the avatars are drawn initials under **Simulated
+  collaborators** and never claim a live presence.
+- **The stack is fixed.** One `server.js` with Express routes, a hash-routed
+  vanilla-JS frontend, Tailwind compiled at build time. No Next.js, no
+  Zustand, no shadcn, no Framer Motion, no Lucide, no runtime Tailwind, no
+  third-party generation API, no key. Those refusals are deliberate.
+- **Content rules.** No violence, no weapons, no sexual or suggestive
+  content, no gambling, no loot box anywhere, including the seed rows, the
+  presets and the assistant's replies. User-facing copy avoids em dashes.
